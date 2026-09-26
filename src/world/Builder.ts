@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PhysicsWorld, Collider } from '../core/Physics';
 import { Heightfield } from './Heightfield';
-import { toonMat, glowMat } from '../render/Toon';
-import { hullTex, hazardTex, solarTex, containerTex, gridFloorTex, palladiumTex, ventTex, labelTex } from '../render/Textures';
+import { glowMat } from '../render/Toon';
+import { pbr } from '../render/Materials';
+import { panelSet, treadSet, corrugatedSet, foilSet, solarSet, hazardSet, brushedSet, concreteSet } from '../render/TextureGen';
+import { palladiumTex, labelTex } from '../render/Textures';
 import { LAYER_NO_OUTLINE } from '../render/Pipeline';
 
 export const TEAM_COLORS = [
@@ -12,6 +14,7 @@ export const TEAM_COLORS = [
 ];
 
 const TILE = 2; // meters per texture tile
+const SIZE_SMALL = 48;
 
 export type Mat =
   | 'hull'
@@ -43,7 +46,8 @@ export type Mat =
   | 'label0'
   | 'label1'
   | 'labelMine'
-  | 'steel';
+  | 'steel'
+  | 'concrete';
 
 export interface Animated {
   update(t: number, dt: number): void;
@@ -96,6 +100,7 @@ export class StructureBuilder {
   hf: Heightfield;
   private parts = new Map<Mat, THREE.BufferGeometry[]>();
   mats: Record<Mat, THREE.Material>;
+
   group = new THREE.Group();
   animated: Animated[] = [];
   /** point lights are expensive; we only keep a few flagged "key lights" */
@@ -104,39 +109,54 @@ export class StructureBuilder {
   constructor(world: PhysicsWorld, hf: Heightfield) {
     this.world = world;
     this.hf = hf;
-    const hull = hullTex();
-    const cont = containerTex();
+    const hull = panelSet(1, { depth: 4 });
+    const hull2 = panelSet(2, { depth: 5, minSize: SIZE_SMALL });
+    const plate = treadSet(3);
+    const corr = corrugatedSet(4);
+    const brushed = brushedSet(18);
+    const concrete = concreteSet(15);
+    const paint = (key: string, color: number, set = hull, extra: { rough?: number; coat?: number; metal?: number } = {}) =>
+      pbr('b-' + key, {
+        color,
+        set,
+        roughness: extra.rough ?? 1,
+        metalness: extra.metal ?? 1,
+        normalScale: 1,
+        physical: extra.coat ? { clearcoat: extra.coat, clearcoatRoughness: 0.35 } : undefined,
+        style: { rim: 0.22 },
+      });
     this.mats = {
-      hull: toonMat(0xeae7e0, { map: hull, spec: 0.5, rim: 0.3 }),
-      hullGray: toonMat(0xa7adb8, { map: hull, spec: 0.45 }),
-      dark: toonMat(0x3b4150, { spec: 0.6, rim: 0.4 }),
-      darkPanel: toonMat(0x5b6273, { map: hull, spec: 0.4 }),
-      steel: toonMat(0x7d8594, { spec: 0.8, rim: 0.45 }),
-      team0: toonMat(TEAM_COLORS[0].main, { spec: 0.5, rim: 0.4 }),
-      team1: toonMat(TEAM_COLORS[1].main, { spec: 0.5, rim: 0.4 }),
+      hull: paint('hull', 0xf1eee8),
+      hullGray: paint('hullGray', 0xa5acb8),
+      dark: pbr('b-dark', { color: 0x3a404c, set: brushed, roughness: 1.15, metalness: 0.75, style: { rim: 0.2 } }),
+      darkPanel: paint('darkPanel', 0x5a6272, hull2),
+      steel: pbr('b-steel', { color: 0xc9ced8, set: brushed, roughness: 1, metalness: 1, physical: { anisotropy: 0.5 }, style: { rim: 0.2 } }),
+      team0: paint('team0', TEAM_COLORS[0].main, hull2, { coat: 0.6 }),
+      team1: paint('team1', TEAM_COLORS[1].main, hull2, { coat: 0.6 }),
       team0Glow: glowMat(TEAM_COLORS[0].glow, 2.6),
       team1Glow: glowMat(TEAM_COLORS[1].glow, 2.6),
-      yellow: toonMat(0xffc21a, { spec: 0.5 }),
-      hazard: toonMat(0xffffff, { map: hazardTex() }),
+      yellow: paint('yellow', 0xffbf1f, hull2, { coat: 0.4 }),
+      hazard: pbr('b-hazard', { set: hazardSet(), roughness: 1, metalness: 1, style: { rim: 0.2 } }),
       glassBlue: glowMat(0xa8e8ff, 1.4),
       glassWarm: glowMat(0xffd89a, 1.6),
-      solar: toonMat(0xffffff, { map: solarTex(), spec: 1.2, rim: 0.2 }),
-      gold: toonMat(0xe3a82b, { spec: 1.3, rim: 0.6, rimColor: 0xffe7a0 }),
-      grid: toonMat(0xb4bac6, { map: gridFloorTex(), spec: 0.3 }),
-      rubber: toonMat(0x23262e, { rim: 0.2 }),
-      containerRed: toonMat(0xc9432f, { map: cont }),
-      containerBlue: toonMat(0x2f6fb5, { map: cont }),
-      containerGreen: toonMat(0x4f8f4a, { map: cont }),
-      containerWhite: toonMat(0xd8d8d2, { map: cont }),
+      solar: pbr('b-solar', { set: solarSet(), roughness: 1, metalness: 1, physical: { clearcoat: 1, clearcoatRoughness: 0.05 }, style: { rim: 0.15 } }),
+      gold: pbr('b-gold', { set: foilSet(6), roughness: 1, metalness: 1, style: { rim: 0.35, rimColor: 0xffe7a0 } }),
+      grid: pbr('b-grid', { color: 0xb8bec9, set: plate, roughness: 1, metalness: 1, style: { rim: 0.15 } }),
+      rubber: pbr('b-rubber', { color: 0x1f2228, roughness: 0.9, metalness: 0 }),
+      containerRed: pbr('b-cRed', { color: 0xc4432f, set: corr, roughness: 1, metalness: 1 }),
+      containerBlue: pbr('b-cBlue', { color: 0x2f6fb5, set: corr, roughness: 1, metalness: 1 }),
+      containerGreen: pbr('b-cGreen', { color: 0x4f8f4a, set: corr, roughness: 1, metalness: 1 }),
+      containerWhite: pbr('b-cWhite', { color: 0xd8d8d2, set: corr, roughness: 1, metalness: 1 }),
       ore: glowMat(0x7ff0ff, 2.4),
-      oreRock: toonMat(0xc8d6e0, { flat: true, spec: 1.5, rim: 0.7, rimColor: 0x9ff6ff, emissive: 0x2a8fa0, emissiveIntensity: 0.6 }),
+      oreRock: pbr('b-oreRock', { color: 0xd6e6f0, roughness: 0.14, metalness: 0.85, flat: true, emissive: 0x1d7c8c, emissiveIntensity: 0.9, physical: { iridescence: 1, clearcoat: 0.8 }, style: { rim: 0.6, rimColor: 0x9ff6ff } }),
       beaconRed: glowMat(0xff3a2a, 5),
       lamp: glowMat(0xfff2d0, 4),
-      pd: toonMat(0xffffff, { map: palladiumTex(), emissive: 0x0b3b44, emissiveIntensity: 1 }),
-      vent: toonMat(0x8d94a2, { map: ventTex() }),
-      label0: toonMat(0xffffff, { map: labelTex('ARTEMIS', 'LUNAR DEFENSE CORPS', '#1f5fd0', '#e9f4ff') }),
-      label1: toonMat(0xffffff, { map: labelTex('SELENE', 'ORBITAL LEGION', '#d8521a', '#fff2e6') }),
-      labelMine: toonMat(0xffffff, { map: labelTex('PD-46', 'PALLADIUM EXTRACTION SITE', '#ffc21a', '#1a1c24') }),
+      pd: pbr('b-pd', { map: palladiumTex(), color: 0xffffff, roughness: 0.4, metalness: 0.1, emissive: 0x0b3b44, emissiveIntensity: 1 }),
+      vent: paint('vent', 0x8d94a2, panelSet(7, { depth: 3 })),
+      label0: pbr('b-label0', { map: labelTex('ARTEMIS', 'LUNAR DEFENSE CORPS', '#1f5fd0', '#e9f4ff'), roughness: 0.45, metalness: 0.1 }),
+      label1: pbr('b-label1', { map: labelTex('SELENE', 'ORBITAL LEGION', '#d8521a', '#fff2e6'), roughness: 0.45, metalness: 0.1 }),
+      labelMine: pbr('b-labelMine', { map: labelTex('PD-46', 'PALLADIUM EXTRACTION SITE', '#ffc21a', '#1a1c24'), roughness: 0.45, metalness: 0.1 }),
+      concrete: pbr('b-concrete', { color: 0xb9b3a8, set: concrete, roughness: 1, metalness: 1, style: { rim: 0.12 } }),
     };
   }
 

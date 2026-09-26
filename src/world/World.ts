@@ -3,12 +3,12 @@ import { MAPS, MapId, MapDef } from './MapDefs';
 import { generateTerrain, TerrainData } from './TerrainGen';
 import { TerrainMesh } from './TerrainMesh';
 import { Sky, dirFromAngles } from './Sky';
-import { Lighting } from './Lighting';
 import { PhysicsWorld } from '../core/Physics';
 import { StructureBuilder, Animated } from './Builder';
 import { buildLayout, LayoutInfo } from './Layouts';
 import { scatterRocks } from './Props';
-import type { Quality } from '../render/Pipeline';
+import type { Quality } from '../game/Types';
+import { Lighting as _L, ShadowMode } from './Lighting';
 
 /** Everything static about a map: terrain, sky, lights, structures, colliders and gameplay markers. */
 export class World {
@@ -17,7 +17,7 @@ export class World {
   terrainData: TerrainData;
   terrain: TerrainMesh;
   sky: Sky;
-  lighting: Lighting;
+  lighting: _L;
   physics: PhysicsWorld;
   layout: LayoutInfo;
   animated: Animated[];
@@ -25,7 +25,8 @@ export class World {
   structures: THREE.Group;
   time = 0;
 
-  constructor(mapId: MapId, quality: Quality) {
+  constructor(mapId: MapId, opts: { quality: Quality; shadows: ShadowMode; renderer: THREE.WebGLRenderer; camera: THREE.PerspectiveCamera }) {
+    const quality = opts.quality;
     const def = (this.def = structuredClone(MAPS[mapId]));
     this.terrainData = generateTerrain(def);
     this.terrain = new TerrainMesh(this.terrainData, def);
@@ -33,7 +34,8 @@ export class World {
     this.sunDir = dirFromAngles(def.sun.azimuth, def.sun.elevation);
     this.sky = new Sky(this.sunDir, dirFromAngles(def.earth.azimuth, def.earth.elevation), def.earth.size, def.seed);
     this.scene.add(this.sky.group);
-    this.lighting = new Lighting(this.scene, this.sunDir, quality);
+    const earthDir = dirFromAngles(def.earth.azimuth, def.earth.elevation);
+    this.lighting = new _L(this.scene, opts.camera, opts.renderer, this.sunDir, earthDir, quality, opts.shadows);
     this.physics = new PhysicsWorld(this.terrainData.hf);
     this.physics.bounds = { minX: -def.halfX, maxX: def.halfX, minZ: -def.halfZ, maxZ: def.halfZ };
 
@@ -72,6 +74,6 @@ export class World {
     for (const a of this.animated) a.update(this.time, dt);
     this.terrain.update(this.time);
     this.sky.update(camPos, this.time, pixelScale);
-    this.lighting.update(focus);
+    this.lighting.update();
   }
 }

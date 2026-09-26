@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { TerrainData } from './TerrainGen';
 import { MapDef } from './MapDefs';
-import { toonGradient, injectRim } from '../render/Toon';
+import { registerLit, stylize } from '../render/Materials';
+import { regolithSet } from '../render/TextureGen';
 
 const CHUNK = 64; // cells per chunk side
 
@@ -14,6 +15,8 @@ uniform float uTime;
 uniform vec3 uCool;
 uniform vec3 uWarm;
 uniform vec3 uOre;
+uniform sampler2D tDetail;
+uniform sampler2D tDetailN;
 
 vec2 th22(vec2 p) {
   p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
@@ -56,7 +59,7 @@ vec4 craterField(vec2 p, float density) {
 export class TerrainMesh {
   group = new THREE.Group();
   chunks: { mesh: THREE.Mesh; i0: number; j0: number; i1: number; j1: number }[] = [];
-  material: THREE.MeshToonMaterial;
+  material: THREE.MeshStandardMaterial;
   farMesh: THREE.Mesh;
   private data: TerrainData;
   uniforms = {
@@ -64,12 +67,14 @@ export class TerrainMesh {
     uCool: { value: new THREE.Color(0x6b76a8) },
     uWarm: { value: new THREE.Color(0xd9c7a8) },
     uOre: { value: new THREE.Color(0x7ff0ff) },
+    tDetail: { value: null as THREE.Texture | null },
+    tDetailN: { value: null as THREE.Texture | null },
   };
 
   constructor(data: TerrainData, def: MapDef) {
     this.data = data;
     const base = new THREE.Color(def.tint);
-    this.material = new THREE.MeshToonMaterial({ color: base, gradientMap: toonGradient(), vertexColors: true });
+    this.material = new THREE.MeshStandardMaterial({ color: base, vertexColors: true, roughness: 0.97, metalness: 0 });
     this.patchMaterial(this.material, true);
     const hf = data.hf;
     for (let j0 = 0; j0 < hf.nz - 1; j0 += CHUNK) {
@@ -89,8 +94,11 @@ export class TerrainMesh {
     this.group.add(this.farMesh);
   }
 
-  private patchMaterial(mat: THREE.MeshToonMaterial, detail: boolean): void {
+  private patchMaterial(mat: THREE.MeshStandardMaterial, detail: boolean): void {
     const u = this.uniforms;
+    const reg = regolithSet(12);
+    u.tDetail.value = reg.map;
+    u.tDetailN.value = reg.normalMap;
     mat.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, u);
       shader.vertexShader = shader.vertexShader
@@ -128,6 +136,8 @@ export class TerrainMesh {
           vec2 pf = fract(wp * 1.3) - th22(pc) * 0.8 - 0.1;
           float peb = step(0.82, th12(pc + 3.7)) * (1.0 - smoothstep(0.05, 0.11, length(pf)));
           diffuseColor.rgb *= 1.0 - peb * 0.25 * (1.0 - smoothstep(10.0, 40.0, camDist));
+          vec3 det = texture2D(tDetail, wp / 3.0).rgb * 0.6 + texture2D(tDetail, wp / 11.0).rgb * 0.4;
+          diffuseColor.rgb *= mix(vec3(1.0), det * 1.08, 1.0 - smoothstep(30.0, 110.0, camDist));
           `,
         )
         .replace(
@@ -146,6 +156,10 @@ export class TerrainMesh {
             vec2 g2 = vec2(tvnoise(wp * 2.3 + 0.37) - tvnoise(wp * 2.3 - 0.37), tvnoise(wp * 2.3 + vec2(0.0, 0.37)) - tvnoise(wp * 2.3 - vec2(0.0, 0.37)));
             grad += g2 * 0.35 * (1.0 - smoothstep(6.0, 30.0, camDist));
             grad *= lod;
+            vec3 dn1 = texture2D(tDetailN, wp / 3.0).xyz * 2.0 - 1.0;
+            vec3 dn2 = texture2D(tDetailN, wp / 11.0).xyz * 2.0 - 1.0;
+            float dl = 1.0 - smoothstep(25.0, 90.0, camDist);
+            grad -= (dn1.xy * 0.55 + dn2.xy * 0.45) * 0.9 * dl;
             vec3 pert = mat3(viewMatrix) * vec3(-grad.x, 0.0, -grad.y);
             normal = normalize(normal + pert);
             diffuseColor.rgb *= 1.0 + (c1.w * 0.1 + c2.w * 0.06) * lod - clamp(-c1.z, 0.0, 1.0) * 0.07 * lod;
@@ -166,7 +180,8 @@ export class TerrainMesh {
         );
     };
     mat.customProgramCacheKey = () => 'terrain' + (detail ? 'D' : '');
-    injectRim(mat, 0.12, new THREE.Color(0xb8c8ff), 0);
+    stylize(mat, { rim: 0.1, wrap: 0.12, rimColor: 0xb8c8ff });
+    registerLit(mat);
   }
 
   private buildChunk(i0: number, j0: number, i1: number, j1: number): THREE.BufferGeometry {
@@ -355,9 +370,8 @@ export class TerrainMesh {
     geo.setAttribute('aTint', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3), 1));
     geo.setIndex(idx);
     geo.computeVertexNormals();
-    const mat = new THREE.MeshToonMaterial({ color: new THREE.Color(def.tint), gradientMap: toonGradient(), vertexColors: true });
+    const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(def.tint), vertexColors: true, roughness: 0.97, metalness: 0 });
     this.patchMaterial(mat, false);
-    mat.customProgramCacheKey = () => 'terrainFar';
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;

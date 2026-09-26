@@ -13,9 +13,11 @@ const canvas = document.getElementById('game') as HTMLCanvasElement;
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 6000);
 const overlay = new THREE.Scene();
 const t0 = performance.now();
-const world = new World(mapId, 'high');
+const q = (params.get('q') as any) || 'high';
+const pipe = new Pipeline(canvas, new THREE.Scene(), camera, overlay, camera, { quality: q, renderScale: 1, ao: !params.has('noao'), bloom: true, outlines: params.has('ink'), filmGrain: true });
+const world = new World(mapId, { quality: q, shadows: (params.get('shadows') as any) || 'high', renderer: pipe.renderer, camera });
+pipe.setScene(world.scene, camera);
 console.log('world build ms', Math.round(performance.now() - t0), 'colliders', world.physics.colliders.length, 'meshes', world.structures.children.length);
-const pipe = new Pipeline(canvas, world.scene, camera, overlay, camera, 'high');
 const input = new Input(canvas);
 const body = new Body(world.physics);
 const sp = world.layout.spawns[0];
@@ -81,3 +83,31 @@ frame();
   }
   return log;
 };
+
+// --- hero lineup preview (?heroes) ---
+import { HeroModel } from './entities/HeroModel';
+import { HERO_ORDER } from './game/Types';
+if (params.has('heroes')) {
+  const base = new THREE.Vector3(Number(params.get('hx') ?? -128), 0, Number(params.get('hz') ?? 20));
+  const models: HeroModel[] = [];
+  HERO_ORDER.forEach((h, i) => {
+    const team = params.get('team');
+    const m = new HeroModel(h, team === null ? null : team === '0' ? 0x2f7cf6 : 0xff6a1f);
+    const x = base.x + (i - 2.5) * 1.6;
+    const z = base.z;
+    m.root.position.set(x, world.terrainData.hf.heightAt(x, z), z);
+    m.root.rotation.y = params.has('side') ? 0.9 : params.has('back') ? Math.PI : 0.25;
+    if (params.get('hl') === 'enemy') m.setHighlight('enemy');
+    world.scene.add(m.root);
+    models.push(m);
+  });
+  const tt0 = performance.now();
+  setInterval(() => {
+    const t = (performance.now() - tt0) / 1000;
+    models.forEach((m, i) =>
+      m.update(1 / 30, { speed: params.has('walk') ? 3 : 0, grounded: true, crouch: 0, pitch: 0, jetting: i === 0, mag: true, attached: false, alive: true, suit: i === 5 ? 0.3 : 1, firing: false, reloading: false, localVel: new THREE.Vector3(), ability: 0 }, t),
+    );
+  }, 33);
+  body.reset(new THREE.Vector3(base.x, world.terrainData.hf.heightAt(base.x, base.z - 5.5), base.z - 5.5), Math.PI);
+  body.pitch = -0.08;
+}

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { pbr } from './Materials';
 
 /**
  * Shared cartoon material factory.
@@ -89,9 +90,14 @@ export function injectRim(mat: THREE.Material, rim: number, rimColor: THREE.Colo
   mat.customProgramCacheKey = () => (prevKey ? prevKey() : '') + '|rim' + (spec > 0 ? 's' : '');
 }
 
-export function toonMat(color: THREE.ColorRepresentation, o: ToonOpts = {}): THREE.MeshToonMaterial {
+/**
+ * Legacy-named factory kept for call sites: now returns a stylised PBR material
+ * (MeshStandardMaterial) — "spec" maps to glossier, slightly metallic surfaces.
+ */
+export function toonMat(color: THREE.ColorRepresentation, o: ToonOpts = {}): THREE.MeshStandardMaterial {
   const c = new THREE.Color(color);
   const key = [
+    'toon',
     c.getHexString(),
     o.emissive !== undefined ? new THREE.Color(o.emissive).getHexString() : '-',
     o.emissiveIntensity ?? 1,
@@ -105,26 +111,23 @@ export function toonMat(color: THREE.ColorRepresentation, o: ToonOpts = {}): THR
     o.map ? o.map.uuid : '-',
     o.depthWrite ?? 1,
     o.spec ?? 0,
-    o.fog ?? 1,
   ].join('|');
-  const hit = cache.get(key);
-  if (hit) return hit as THREE.MeshToonMaterial;
-  const m = new THREE.MeshToonMaterial({
+  const spec = o.spec ?? 0;
+  const m = pbr(key, {
     color: c,
-    gradientMap: toonGradient(),
-    emissive: o.emissive !== undefined ? new THREE.Color(o.emissive) : new THREE.Color(0x000000),
-    emissiveIntensity: o.emissiveIntensity ?? 1,
-    vertexColors: !!o.vertexColors,
-    transparent: !!o.transparent,
-    opacity: o.opacity ?? 1,
-    side: o.side ?? THREE.FrontSide,
+    roughness: Math.max(0.18, 0.72 - spec * 0.28),
+    metalness: spec >= 0.8 ? 0.55 : spec > 0.3 ? 0.15 : 0.02,
+    emissive: o.emissive,
+    emissiveIntensity: o.emissiveIntensity,
+    flat: o.flat,
+    vertexColors: o.vertexColors,
+    transparent: o.transparent,
+    opacity: o.opacity,
+    side: o.side,
     map: o.map ?? null,
-    depthWrite: o.depthWrite ?? true,
-    fog: o.fog ?? true,
-  });
-  (m as THREE.MeshToonMaterial & { flatShading: boolean }).flatShading = !!o.flat;
-  injectRim(m, o.rim ?? 0.35, new THREE.Color(o.rimColor ?? 0xbfd4ff), o.spec ?? 0);
-  cache.set(key, m);
+    style: { rim: (o.rim ?? 0.35) * 0.8, rimColor: o.rimColor },
+  }) as THREE.MeshStandardMaterial;
+  if (o.depthWrite === false) m.depthWrite = false;
   return m;
 }
 

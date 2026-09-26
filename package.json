@@ -1,0 +1,34 @@
+{
+  "name": "moongravity",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cartoon sci-fi shooter on the Moon: two lunar military bases fighting over a palladium mine.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "server": "node server/server.mjs",
+    "start": "vite build && node server/server.mjs",
+    "typecheck:server": "tsc --noEmit --strict --skipLibCheck --target es2022 --module esnext --moduleResolution bundler --types node --isolatedModules shared/lobbyCore.ts netlify/functions/lobby.mts vite.config.ts"
+  },
+  "dependencies": {
+    "@fontsource/exo-2": "^5.3.0",
+    "@fontsource/oswald": "^5.3.0",
+    "@fontsource/russo-one": "^5.3.0",
+    "@netlify/blobs": "^11.1.1",
+    "n8ao": "^2.0.1",
+    "postprocessing": "^6.39.5",
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@netlify/functions": "^6.0.0",
+    "@types/node": "^24.0.0",
+    "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.3.6"
+  }
+}

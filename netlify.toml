@@ -1,0 +1,23 @@
+# MOON GRAVITY — Netlify deployment.
+# Static site (Vite build → dist/, single index.html) + one Functions v2 endpoint
+# (netlify/functions/lobby.mts → /api/lobby/*) backed by Netlify Blobs for
+# matchmaking and WebRTC signaling. Gameplay traffic is peer-to-peer (WebRTC),
+# never through Netlify.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # @netlify/blobs 11 requires Node >= 22.12
+  NODE_VERSION = "22"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Vite emits content-hashed files into /assets — cache them forever.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

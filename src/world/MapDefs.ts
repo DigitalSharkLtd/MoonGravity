@@ -28,6 +28,8 @@ export interface FlatDef {
   d: number; // half depth (z)
   rot?: number;
   h?: number; // target height (defaults to sampled terrain)
+  /** added to the sampled height (plateaus > 0, sunken courts < 0) */
+  offset?: number;
   soft?: number; // falloff distance
 }
 
@@ -52,29 +54,33 @@ export interface MapDef {
 
 const D = Math.PI / 180;
 
+/**
+ * Compact, dense arenas (per product direction): duel ≈ 110×80 m, quarry ≈ 150×150 m, front ≈ 220×140 m.
+ * Flats are levelled pads under every complex footprint (the mine's spoil berm is suppressed on them).
+ */
 export const MAPS: Record<MapId, MapDef> = {
   duel: {
     id: 'duel',
     seed: 7071,
-    halfX: 78,
-    halfZ: 54,
-    margin: 70,
-    cell: 0.7,
-    baseAmp: 3.2,
-    detailAmp: 0.35,
-    randomCraters: 70,
-    craterMaxR: 11,
+    halfX: 55,
+    halfZ: 40,
+    margin: 60,
+    cell: 0.6,
+    baseAmp: 2.6,
+    detailAmp: 0.3,
+    randomCraters: 45,
+    craterMaxR: 7,
     craters: [
-      { x: -30, z: 34, r: 9, rays: true },
-      { x: 34, z: -36, r: 8 },
-      { x: 12, z: 40, r: 5 },
-      { x: -18, z: -40, r: 6 },
-      { x: 110, z: 60, r: 40, peak: 0.05 },
+      { x: -22, z: 30, r: 5, rays: true },
+      { x: 24, z: -30, r: 5 },
+      { x: 90, z: 50, r: 34, peak: 0.05 },
     ],
-    mine: { x: 0, z: 0, r: 30, floorR: 9, depth: 11, benches: 3, ramps: [80 * D, 260 * D] },
+    mine: { x: 0, z: 0, r: 21, floorR: 6.5, depth: 8, benches: 2, ramps: [80 * D, 260 * D] },
     flats: [
-      { x: -60, z: 0, w: 16, d: 22, soft: 8 },
-      { x: 60, z: 0, w: 16, d: 22, soft: 8 },
+      { x: -41, z: 0, w: 13.5, d: 17.5, soft: 6 },
+      { x: 41, z: 0, w: 13.5, d: 17.5, soft: 6 },
+      { x: 0, z: 31, w: 11, d: 7, soft: 5 },
+      { x: 0, z: -31, w: 11, d: 7, soft: 5 },
     ],
     sun: { azimuth: 35 * D, elevation: 17 * D },
     earth: { azimuth: 215 * D, elevation: 32 * D, size: 1 },
@@ -83,27 +89,28 @@ export const MAPS: Record<MapId, MapDef> = {
   quarry: {
     id: 'quarry',
     seed: 4242,
-    halfX: 100,
-    halfZ: 100,
-    margin: 80,
-    cell: 0.8,
-    baseAmp: 4.5,
-    detailAmp: 0.4,
-    randomCraters: 110,
-    craterMaxR: 14,
+    halfX: 75,
+    halfZ: 75,
+    margin: 60,
+    cell: 0.7,
+    baseAmp: 3.6,
+    detailAmp: 0.35,
+    randomCraters: 60,
+    craterMaxR: 8,
     craters: [
-      { x: 62, z: 70, r: 12, rays: true },
-      { x: -75, z: -58, r: 13, peak: 0.08 },
-      { x: -64, z: 70, r: 7 },
-      { x: 80, z: -30, r: 6 },
-      { x: -180, z: 40, r: 60, peak: 0.06 },
+      { x: -140, z: 40, r: 50, peak: 0.06 },
+      { x: 110, z: -120, r: 40 },
     ],
-    mine: { x: 0, z: 0, r: 58, floorR: 16, depth: 22, benches: 5, ramps: [20 * D, 150 * D, 270 * D] },
+    mine: { x: 0, z: 0, r: 40, floorR: 12, depth: 16, benches: 4, ramps: [20 * D, 150 * D, 270 * D] },
     flats: [
-      { x: 0, z: 78, w: 22, d: 12, soft: 8 },
-      { x: 0, z: -78, w: 22, d: 12, soft: 8 },
-      { x: 78, z: 20, w: 12, d: 18, soft: 8 },
-      { x: -78, z: -10, w: 12, d: 18, soft: 8 },
+      { x: 0, z: 60, w: 14, d: 12, soft: 5 }, // N processing plant
+      { x: 53, z: 53, w: 20, d: 20, soft: 5, rot: 0 }, // NE spaceport
+      { x: 62, z: 0, w: 11, d: 11, soft: 5, offset: 1.5 }, // E relay on high ground
+      { x: 53, z: -53, w: 19, d: 19, soft: 5 }, // SE lab
+      { x: 0, z: -61, w: 14, d: 11, soft: 5 }, // S silos / power
+      { x: -53, z: -53, w: 20, d: 20, soft: 5 }, // SW hab dome
+      { x: -62, z: 0, w: 11, d: 12, soft: 5 }, // W depot
+      { x: -53, z: 53, w: 18, d: 18, soft: 5 }, // NW power station
     ],
     sun: { azimuth: 120 * D, elevation: 21 * D },
     earth: { azimuth: 330 * D, elevation: 40 * D, size: 1.1 },
@@ -112,29 +119,29 @@ export const MAPS: Record<MapId, MapDef> = {
   front: {
     id: 'front',
     seed: 1969,
-    halfX: 165,
-    halfZ: 95,
-    margin: 90,
-    cell: 0.9,
-    baseAmp: 5,
-    detailAmp: 0.45,
-    randomCraters: 150,
-    craterMaxR: 16,
+    halfX: 110,
+    halfZ: 70,
+    margin: 70,
+    cell: 0.75,
+    baseAmp: 3.8,
+    detailAmp: 0.4,
+    randomCraters: 80,
+    craterMaxR: 9,
     craters: [
-      { x: -60, z: 62, r: 14, rays: true },
-      { x: 64, z: -62, r: 13, peak: 0.07 },
-      { x: 0, z: 78, r: 8 },
-      { x: 0, z: -80, r: 9 },
-      { x: -82, z: -58, r: 7 },
-      { x: 86, z: 56, r: 7 },
-      { x: 0, z: 230, r: 90, peak: 0.05 },
+      { x: -64, z: 58, r: 6, rays: true },
+      { x: 66, z: -58, r: 6 },
+      { x: 0, z: 200, r: 80, peak: 0.05 },
     ],
-    mine: { x: 0, z: 0, r: 48, floorR: 13, depth: 18, benches: 4, ramps: [0, 180 * D] },
+    mine: { x: 0, z: 0, r: 30, floorR: 9, depth: 12, benches: 3, ramps: [0, 180 * D] },
     flats: [
-      { x: -132, z: 0, w: 32, d: 58, soft: 10 },
-      { x: 132, z: 0, w: 32, d: 58, soft: 10 },
-      { x: -70, z: 0, w: 10, d: 12, soft: 6 },
-      { x: 70, z: 0, w: 10, d: 12, soft: 6 },
+      { x: -88, z: 0, w: 22, d: 44, soft: 8 },
+      { x: 88, z: 0, w: 22, d: 44, soft: 8 },
+      { x: -46, z: 0, w: 13.5, d: 17, soft: 6 }, // A processing plant
+      { x: 46, z: 0, w: 13.5, d: 17, soft: 6 }, // C silo complex
+      { x: 0, z: 53, w: 27, d: 14, soft: 6 }, // north spaceport
+      { x: 0, z: -53, w: 27, d: 14, soft: 6 }, // south lab
+      { x: -62, z: 52, w: 8, d: 8, soft: 5 },
+      { x: 62, z: -52, w: 8, d: 8, soft: 5 },
     ],
     sun: { azimuth: 70 * D, elevation: 14 * D },
     earth: { azimuth: 250 * D, elevation: 36 * D, size: 1.25 },

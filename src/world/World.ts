@@ -24,12 +24,22 @@ export class World {
   sunDir: THREE.Vector3;
   structures: THREE.Group;
   time = 0;
+  /** build phase timings (ms) for diagnostics */
+  timings: Record<string, number> = {};
 
   constructor(mapId: MapId, opts: { quality: Quality; shadows: ShadowMode; renderer: THREE.WebGLRenderer; camera: THREE.PerspectiveCamera }) {
     const quality = opts.quality;
     const def = (this.def = structuredClone(MAPS[mapId]));
+    let tm = performance.now();
+    const lap = (k: string) => {
+      const now = performance.now();
+      this.timings[k] = Math.round(now - tm);
+      tm = now;
+    };
     this.terrainData = generateTerrain(def);
+    lap('terrainGen');
     this.terrain = new TerrainMesh(this.terrainData, def);
+    lap('terrainMesh');
     this.scene.add(this.terrain.group);
     this.sunDir = dirFromAngles(def.sun.azimuth, def.sun.elevation);
     this.sky = new Sky(this.sunDir, dirFromAngles(def.earth.azimuth, def.earth.elevation), def.earth.size, def.seed);
@@ -38,13 +48,20 @@ export class World {
     this.lighting = new _L(this.scene, opts.camera, opts.renderer, this.sunDir, earthDir, quality, opts.shadows);
     this.physics = new PhysicsWorld(this.terrainData.hf);
     this.physics.bounds = { minX: -def.halfX, maxX: def.halfX, minZ: -def.halfZ, maxZ: def.halfZ };
+    lap('skyLighting');
 
     const b = new StructureBuilder(this.physics, this.terrainData.hf);
+    lap('materials');
     this.layout = buildLayout(b, def, this.terrainData);
+    lap('layout');
     this.structures = b.finish();
+    lap('merge+bake');
+    this.terrain.bakeLights(b.lights, b.lamps);
+    lap('terrainBake');
     this.scene.add(this.structures);
     this.animated = b.animated;
-    for (const p of this.layout.pickups) p.pos.y = this.terrainData.hf.heightAt(p.pos.x, p.pos.z);
+    // pickups on upper floors keep their explicit height (elevated), the rest sit on the terrain
+    for (const p of this.layout.pickups) if (!p.elevated) p.pos.y = this.terrainData.hf.heightAt(p.pos.x, p.pos.z);
     for (const p of this.layout.podZones) p.y = this.terrainData.hf.heightAt(p.x, p.z);
 
     const rocks = new THREE.Group();
@@ -67,6 +84,7 @@ export class World {
       return this.physics.pointBlocked(new THREE.Vector3(x, this.terrainData.hf.heightAt(x, z) + 1, z), r);
     });
     this.scene.add(rocks);
+    lap('rocks');
   }
 
   update(dt: number, camPos: THREE.Vector3, focus: THREE.Vector3, pixelScale: number): void {

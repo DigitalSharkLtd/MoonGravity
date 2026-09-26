@@ -168,7 +168,7 @@ export function generateTerrain(def: MapDef): TerrainData {
   // --- flats for bases (blend toward a level pad) ---
   for (const f of def.flats) {
     const soft = f.soft ?? 8;
-    const target = f.h ?? averageHeight(hf, f.x, f.z, Math.min(f.w, f.d));
+    const target = f.h ?? averageHeight(hf, f.x, f.z, Math.min(f.w, f.d)) + (f.offset ?? 0);
     f.h = target;
     const cr = Math.cos(-(f.rot ?? 0));
     const sr = Math.sin(-(f.rot ?? 0));
@@ -220,11 +220,11 @@ export function generateTerrain(def: MapDef): TerrainData {
         const irr = 1 + 0.035 * noise.noise2(Math.cos(ang) * 2 + 3, Math.sin(ang) * 2 - 5);
         const dn = d / irr;
         if (dn > m.r * 1.45) continue;
-        // spoil berm around the rim
+        // spoil berm around the rim (not on levelled building pads)
         if (dn >= m.r) {
           const t = (dn - m.r) / (m.r * 0.45);
           const berm = 1.6 * Math.sin(Math.min(1, t) * Math.PI) * (0.7 + 0.3 * noise.noise2(x / 6, z / 6));
-          H[k] += berm * (1 - smooth(0.6, 1, t));
+          H[k] += berm * (1 - smooth(0.6, 1, t)) * (1 - flatWeight(def, x, z));
           continue;
         }
         // stepped profile: t=0 at floor edge, 1 at the rim
@@ -297,6 +297,21 @@ export function generateTerrain(def: MapDef): TerrainData {
   }
 
   return { hf, albedo, tint, ore, noise, craters, farHeight, mineTop };
+}
+
+/** 1 inside a levelled flat, fading to 0 across its soft edge */
+function flatWeight(def: MapDef, x: number, z: number): number {
+  let w = 0;
+  for (const f of def.flats) {
+    const soft = f.soft ?? 8;
+    const cr = Math.cos(-(f.rot ?? 0));
+    const sr = Math.sin(-(f.rot ?? 0));
+    const lx = (x - f.x) * cr - (z - f.z) * sr;
+    const lz = (x - f.x) * sr + (z - f.z) * cr;
+    const o = Math.hypot(Math.max(0, Math.abs(lx) - f.w), Math.max(0, Math.abs(lz) - f.d));
+    w = Math.max(w, 1 - smooth(0, soft, o));
+  }
+  return w;
 }
 
 function averageHeight(hf: Heightfield, x: number, z: number, r: number): number {

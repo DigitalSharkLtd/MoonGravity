@@ -24,7 +24,13 @@ export interface AnimState {
   reloading: boolean;
   localVel: THREE.Vector3; // body space: x right, z back
   ability: number; // 0..1 pose blend for ability casts
+  stance?: 'stand' | 'crouch' | 'prone' | 'slide' | 'roll';
+  grapple?: boolean;
+  deflect?: boolean;
+  shield?: number; // 0..1 force-field strength
 }
+
+export type ModelVariant = HeroId | 'servitor';
 
 type BoneName = 'root' | 'hips' | 'spine' | 'chest' | 'neck' | 'head' | 'pack' | 'armL' | 'foreL' | 'handL' | 'armR' | 'foreR' | 'handR' | 'legL' | 'shinL' | 'footL' | 'legR' | 'shinR' | 'footR';
 
@@ -60,11 +66,15 @@ interface Part {
 
 const V3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
-function mats(hero: HeroId, main: number, accent: number, visor: number): Record<MatKind, THREE.Material> {
+function mats(hero: ModelVariant, main: number, accent: number, visor: number): Record<MatKind, THREE.Material> {
   const key = hero + '|' + main.toString(16) + '|' + accent.toString(16);
   const fabric = fabricSet();
+  const suitCol = hero === 'phantom' ? 0x3a3f4c : hero === 'blade' ? 0x2f3a3c : hero === 'forge' ? 0xe6dccb : hero === 'hive' ? 0xd9d6c8 : 0xf0eee9;
   return {
-    suit: pbr('h-suit|' + key, { color: hero === 'phantom' ? 0x3a3f4c : 0xf0eee9, set: fabric, repeat: 3, roughness: 1, metalness: 0, physical: { sheen: 0.6, sheenColor: 0xdfe8ff, sheenRoughness: 0.5 }, style: { rim: 0.35 } }),
+    suit:
+      hero === 'servitor'
+        ? pbr('h-suit|' + key, { color: 0x4a505c, set: brushedSet(26), repeat: 2, roughness: 1.1, metalness: 0.85, style: { rim: 0.3 } })
+        : pbr('h-suit|' + key, { color: suitCol, set: fabric, repeat: 3, roughness: 1, metalness: 0, physical: { sheen: 0.6, sheenColor: 0xdfe8ff, sheenRoughness: 0.5 }, style: { rim: 0.35 } }),
     armor: pbr('h-armor|' + key, { color: main, set: panelSet(21, { depth: 3, wear: 0.6, stencil: false }), repeat: 2, roughness: 0.9, metalness: 1, physical: { clearcoat: 0.9, clearcoatRoughness: 0.18 }, style: { rim: 0.4 } }),
     accent: pbr('h-accent|' + key, { color: accent, set: panelSet(22, { depth: 2, wear: 0.4, stencil: false }), repeat: 2, roughness: 0.8, metalness: 1, physical: { clearcoat: 1, clearcoatRoughness: 0.12 }, style: { rim: 0.4 } }),
     dark: pbr('h-dark|' + key, { color: 0x2a2e38, set: brushedSet(24), repeat: 2, roughness: 1.3, metalness: 0.6, style: { rim: 0.3 } }),
@@ -118,16 +128,28 @@ export class HeroModel {
   private highlight: 'none' | 'enemy' | 'ally' = 'none';
   private outlineMat: THREE.ShaderMaterial;
   private visorCrack: THREE.Mesh | null = null;
+  handLWorld = new THREE.Vector3();
+  readonly variant: ModelVariant;
+  private swingT = 0;
+  private swingSide = 1;
+  private rollP = 0;
+  private lastStance = 'stand';
+  private slideK = 0;
+  private proneK = 0;
+  private grappleK = 0;
+  private deflectK = 0;
+  private shieldMesh: THREE.Mesh | null = null;
 
-  constructor(hero: HeroId, teamColor: number | null) {
+  constructor(hero: HeroId, teamColor: number | null, variant?: 'servitor') {
     this.hero = hero;
+    this.variant = variant ?? hero;
     const def = HEROES[hero];
-    const heroCol = new THREE.Color(def.color).getHex();
+    const heroCol = variant === 'servitor' ? 0xff9f43 : new THREE.Color(def.color).getHex();
     const main = teamColor ?? heroCol;
-    const accent = teamColor !== null ? heroCol : new THREE.Color(def.color).offsetHSL(0.03, 0, 0.12).getHex();
-    const visor = new THREE.Color(def.visor).getHex();
-    const M = mats(hero, main, accent, visor);
-    this.scale = hero === 'reactor' ? 1.12 : hero === 'needle' ? 1.03 : hero === 'phantom' ? 0.98 : 1;
+    const accent = teamColor !== null ? heroCol : new THREE.Color(heroCol).offsetHSL(0.03, 0, 0.12).getHex();
+    const visor = variant === 'servitor' ? 0xff6a2a : new THREE.Color(def.visor).getHex();
+    const M = mats(this.variant, main, accent, visor);
+    this.scale = variant === 'servitor' ? 0.93 : hero === 'reactor' ? 1.12 : hero === 'needle' ? 1.03 : hero === 'phantom' ? 0.98 : hero === 'forge' ? 1.04 : 1;
 
     // --- skeleton ---
     const boneList: THREE.Bone[] = [];
@@ -147,7 +169,7 @@ export class HeroModel {
     // --- parts ---
     const parts: Part[] = [];
     const add = (bone: BoneName, mat: MatKind, geo: THREE.BufferGeometry) => parts.push({ bone, mat, geo });
-    buildBody(hero, add);
+    buildBody(this.variant, add);
 
     // group by material, bake into bind pose, create skinned meshes
     const byMat = new Map<MatKind, THREE.BufferGeometry[]>();
@@ -227,7 +249,39 @@ export class HeroModel {
     this.weaponHolder.position.set(0, -0.06, -0.02);
 
     this.cloakMat = new THREE.MeshBasicMaterial({ color: 0x9fb8ff, transparent: true, opacity: 0.06, depthWrite: false, blending: THREE.AdditiveBlending });
-    this.setWeapon(def.weapon);
+    this.setWeapon(variant === 'servitor' ? 'pulse' : def.weapon);
+  }
+
+  /** melee swing (katana slash / rifle bash), side alternates */
+  swing(side: number): void {
+    this.swingT = 1;
+    this.swingSide = side;
+  }
+
+  private ensureShield(): THREE.Mesh {
+    if (this.shieldMesh) return this.shieldMesh;
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(0x6fd0ff) }, uAmt: { value: 1 }, uTime: { value: 0 } },
+      vertexShader: `varying vec3 vN; varying vec3 vV; varying vec3 vP;
+        void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix*normal); vV = normalize(-mv.xyz); vP = position; gl_Position = projectionMatrix*mv; }`,
+      fragmentShader: `uniform vec3 uColor; uniform float uAmt; uniform float uTime; varying vec3 vN; varying vec3 vV; varying vec3 vP;
+        void main(){ float f = pow(1.0 - abs(dot(vN, vV)), 2.2);
+          float hex = abs(sin(vP.y*18.0 + uTime*3.0) * sin(atan(vP.z, vP.x)*9.0));
+          float a = (f*0.85 + smoothstep(0.92,1.0,hex)*0.25) * uAmt;
+          gl_FragColor = vec4(uColor*2.2, a); }`,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+    });
+    const m = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), mat);
+    m.scale.set(0.8, 1.15, 0.8);
+    m.position.y = 1.0;
+    m.layers.set(LAYER_NO_OUTLINE);
+    m.visible = false;
+    this.root.add(m);
+    this.shieldMesh = m;
+    return m;
   }
 
   setHighlight(kind: 'none' | 'enemy' | 'ally'): void {
@@ -296,6 +350,23 @@ export class HeroModel {
     const ph = this.phase * Math.PI;
     this.flinch = Math.max(0, this.flinch - dt * 5);
     this.fireKick = Math.max(0, this.fireKick - dt * 12);
+    this.swingT = Math.max(0, this.swingT - dt * 3.1);
+    const stance = s.stance ?? 'stand';
+    if (stance === 'roll' && this.lastStance !== 'roll') this.rollP = 0;
+    this.lastStance = stance;
+    if (stance === 'roll') this.rollP = Math.min(1, this.rollP + dt / 0.55);
+    const ease = (k: number, target: number, rate: number) => k + (target - k) * Math.min(1, dt * rate);
+    this.slideK = ease(this.slideK, stance === 'slide' ? 1 : 0, 14);
+    this.proneK = ease(this.proneK, stance === 'prone' ? 1 : 0, 7);
+    this.grappleK = ease(this.grappleK, s.grapple ? 1 : 0, 10);
+    this.deflectK = ease(this.deflectK, s.deflect ? 1 : 0, 16);
+    if (s.shield && s.shield > 0.01 && s.alive) {
+      const sh = this.ensureShield();
+      sh.visible = !this.fp && this.cloak < 0.5;
+      const u = (sh.material as THREE.ShaderMaterial).uniforms;
+      u.uAmt.value = 0.35 + s.shield * 0.65;
+      u.uTime.value = time;
+    } else if (this.shieldMesh) this.shieldMesh.visible = false;
 
     for (const f of this.jetFlames) {
       f.visible = s.jetting && s.alive && !this.fp && this.cloak < 0.5;
@@ -308,6 +379,7 @@ export class HeroModel {
     if (this.visorCrack) this.visorCrack.visible = s.suit < 0.5 && this.cloak < 0.5;
 
     const root = B('root');
+    root.position.set(0, 0, 0);
     if (!s.alive) {
       this.deathT = Math.min(1, this.deathT + dt * 0.65);
       const e = 1 - Math.pow(1 - this.deathT, 3);
@@ -387,10 +459,23 @@ export class HeroModel {
     B('head').rotation.x = p * 0.3;
     const armPitch = p * 0.6 - this.fireKick * 0.12;
     const aimBase = Math.PI / 2 - 0.15;
-    B('armR').rotation.set(aimBase + armPitch - cr * 0.15, 0.05, 0.1);
-    B('foreR').rotation.set(0.15, 0, 0);
-    B('armL').rotation.set(aimBase + 0.08 + armPitch - cr * 0.15, 0, -0.62);
-    B('foreL').rotation.set(0.45, 0, 0.2);
+    const katana = this.weaponId === 'blade';
+    if (katana) {
+      // katana guard: two-handed mid stance, blade angled up-forward
+      B('armR').rotation.set(0.75 + armPitch * 0.5 - cr * 0.1, 0.1, 0.25);
+      B('foreR').rotation.set(0.9, 0, 0);
+      B('armL').rotation.set(0.85 + armPitch * 0.5, 0, -0.45);
+      B('foreL').rotation.set(1.0, 0, 0.35);
+      if (moving) {
+        B('armL').rotation.x += Math.sin(ph) * 0.15;
+        B('armR').rotation.x -= Math.sin(ph) * 0.08;
+      }
+    } else {
+      B('armR').rotation.set(aimBase + armPitch - cr * 0.15, 0.05, 0.1);
+      B('foreR').rotation.set(0.15, 0, 0);
+      B('armL').rotation.set(aimBase + 0.08 + armPitch - cr * 0.15, 0, -0.62);
+      B('foreL').rotation.set(0.45, 0, 0.2);
+    }
     if (s.reloading) {
       B('armL').rotation.x -= 0.6 + Math.sin(time * 12) * 0.2;
       B('foreL').rotation.x += 0.7;
@@ -399,6 +484,106 @@ export class HeroModel {
       // arm raised for casting
       B('armL').rotation.x = THREE.MathUtils.lerp(B('armL').rotation.x, Math.PI * 0.85, s.ability);
       B('armL').rotation.z = THREE.MathUtils.lerp(B('armL').rotation.z, -0.2, s.ability);
+    }
+    // ---- melee swing: anticipation → strike → follow-through, torso leads the arm ----
+    if (this.swingT > 0) {
+      const t = 1 - this.swingT;
+      const wind = t < 0.2 ? t / 0.2 : 1;
+      const strike = t < 0.2 ? 0 : Math.min(1, (t - 0.2) / 0.3);
+      const k = Math.sin(strike * Math.PI * 0.5);
+      const sd = this.swingSide;
+      const env = Math.sin(Math.min(1, t * 1.25) * Math.PI);
+      if (katana) {
+        B('armR').rotation.set(THREE.MathUtils.lerp(2.6 * wind, 0.7, k), sd * 0.3, THREE.MathUtils.lerp(sd * 0.9, -sd * 0.5, k));
+        B('foreR').rotation.set(THREE.MathUtils.lerp(0.9, 0.2, k), 0, 0);
+        B('armL').rotation.set(THREE.MathUtils.lerp(2.3 * wind, 0.8, k), 0, -0.3);
+      } else {
+        // rifle-butt bash: push the gun forward and across
+        B('armR').rotation.x += env * 0.4;
+        B('armR').rotation.z -= env * 0.5;
+        B('armL').rotation.x += env * 0.5;
+      }
+      chest.rotation.y = THREE.MathUtils.lerp(-sd * 0.35 * wind, sd * 0.45, k) * env;
+      spine.rotation.y = chest.rotation.y * 0.5;
+      spine.rotation.x += env * 0.12;
+    } else {
+      chest.rotation.y = 0;
+      spine.rotation.y = 0;
+    }
+    // ---- deflect guard: blade vertical in front of the chest ----
+    if (this.deflectK > 0.01) {
+      const k = this.deflectK;
+      B('armR').rotation.x = THREE.MathUtils.lerp(B('armR').rotation.x, 1.35, k);
+      B('armR').rotation.z = THREE.MathUtils.lerp(B('armR').rotation.z, 0.7, k);
+      B('foreR').rotation.x = THREE.MathUtils.lerp(B('foreR').rotation.x, 1.3, k);
+      B('armL').rotation.x = THREE.MathUtils.lerp(B('armL').rotation.x, 1.2, k);
+      B('armL').rotation.z = THREE.MathUtils.lerp(B('armL').rotation.z, -0.3, k);
+      B('foreL').rotation.x = THREE.MathUtils.lerp(B('foreL').rotation.x, 1.4, k);
+    }
+    // ---- grapple: launcher arm stretched toward the anchor, legs trailing ----
+    if (this.grappleK > 0.01) {
+      const k = this.grappleK;
+      B('armL').rotation.set(THREE.MathUtils.lerp(B('armL').rotation.x, Math.PI * 0.72, k), 0, THREE.MathUtils.lerp(B('armL').rotation.z, -0.15, k));
+      B('foreL').rotation.x *= 1 - k;
+      legL.rotation.x = THREE.MathUtils.lerp(legL.rotation.x, 0.35, k);
+      legR.rotation.x = THREE.MathUtils.lerp(legR.rotation.x, 0.1, k);
+      shinL.rotation.x = THREE.MathUtils.lerp(shinL.rotation.x, 0.6, k);
+      shinR.rotation.x = THREE.MathUtils.lerp(shinR.rotation.x, 0.9, k);
+      spine.rotation.x -= 0.25 * k;
+    }
+    // ---- slide: lean back, lead leg extended, trailing leg tucked, hand skims the floor ----
+    if (this.slideK > 0.01) {
+      const k = this.slideK;
+      B('hips').position.y = THREE.MathUtils.lerp(B('hips').position.y, 0.5, k);
+      root.rotation.x = -0.0;
+      spine.rotation.x = THREE.MathUtils.lerp(spine.rotation.x, -0.55, k);
+      legL.rotation.x = THREE.MathUtils.lerp(legL.rotation.x, -1.45, k);
+      shinL.rotation.x = THREE.MathUtils.lerp(shinL.rotation.x, 0.15, k);
+      legR.rotation.x = THREE.MathUtils.lerp(legR.rotation.x, -0.55, k);
+      shinR.rotation.x = THREE.MathUtils.lerp(shinR.rotation.x, 1.9, k);
+      legR.rotation.z = THREE.MathUtils.lerp(legR.rotation.z, 0.35, k);
+      B('armL').rotation.set(THREE.MathUtils.lerp(B('armL').rotation.x, -0.5, k), 0, THREE.MathUtils.lerp(B('armL').rotation.z, -0.5, k));
+      B('head').rotation.x += 0.35 * k;
+    }
+    // ---- prone: lying on the belly, weapon forward, crawl cycle ----
+    if (this.proneK > 0.01) {
+      const k = this.proneK;
+      root.rotation.x = -Math.PI / 2 * k;
+      root.position.set(0, 0.26 * k, 0.92 * k);
+      const crawl = s.speed > 0.2 ? Math.sin(time * 5) : 0;
+      B('hips').position.y = THREE.MathUtils.lerp(B('hips').position.y, 0.98, k);
+      spine.rotation.x = THREE.MathUtils.lerp(spine.rotation.x, -0.12, k);
+      chest.rotation.x = THREE.MathUtils.lerp(chest.rotation.x, -0.15, k);
+      B('head').rotation.x = THREE.MathUtils.lerp(B('head').rotation.x, -1.15 + p * 0.3, k);
+      legL.rotation.set(THREE.MathUtils.lerp(legL.rotation.x, 0.05 + crawl * 0.25, k), 0, -0.14 * k - crawl * 0.1);
+      legR.rotation.set(THREE.MathUtils.lerp(legR.rotation.x, 0.05 - crawl * 0.25, k), 0, 0.14 * k - crawl * 0.1);
+      shinL.rotation.x = THREE.MathUtils.lerp(shinL.rotation.x, 0.1 + Math.max(0, crawl) * 0.8, k);
+      shinR.rotation.x = THREE.MathUtils.lerp(shinR.rotation.x, 0.1 + Math.max(0, -crawl) * 0.8, k);
+      B('footL').rotation.x = THREE.MathUtils.lerp(B('footL').rotation.x, 1.1, k);
+      B('footR').rotation.x = THREE.MathUtils.lerp(B('footR').rotation.x, 1.1, k);
+      const ap = Math.PI - 0.12 + p * 0.5;
+      B('armR').rotation.set(THREE.MathUtils.lerp(B('armR').rotation.x, ap, k), 0.05, THREE.MathUtils.lerp(B('armR').rotation.z, 0.12, k));
+      B('armL').rotation.set(THREE.MathUtils.lerp(B('armL').rotation.x, ap + 0.1 + crawl * 0.12, k), 0, THREE.MathUtils.lerp(B('armL').rotation.z, -0.55, k));
+    }
+    // ---- combat roll: tucked forward somersault around the body center ----
+    if (stance === 'roll') {
+      const t = this.rollP;
+      const e = t * t * (3 - 2 * t);
+      const ang = -e * Math.PI * 2;
+      const tuck = Math.sin(t * Math.PI);
+      root.rotation.x = ang;
+      const pivot = new THREE.Vector3(0, 0.55, 0);
+      root.position.copy(pivot).sub(pivot.clone().applyEuler(root.rotation));
+      B('hips').position.y = 0.98 - tuck * 0.35;
+      legL.rotation.x = -1.6 * tuck;
+      legR.rotation.x = -1.5 * tuck;
+      shinL.rotation.x = 2.2 * tuck;
+      shinR.rotation.x = 2.1 * tuck;
+      spine.rotation.x = 0.5 * tuck;
+      chest.rotation.x = 0.4 * tuck;
+      B('head').rotation.x = 0.6 * tuck;
+      B('armL').rotation.x = THREE.MathUtils.lerp(B('armL').rotation.x, 0.6, tuck);
+      B('armR').rotation.x = THREE.MathUtils.lerp(B('armR').rotation.x, 0.9, tuck);
     }
     if (this.weapon?.spin) this.weapon.spin.rotation.z += dt * (s.firing ? 14 : 1);
     this.updateWorld();
@@ -410,10 +595,15 @@ export class HeroModel {
     else this.bones.get('handR')!.getWorldPosition(this.muzzleWorld);
     this.bones.get('pack')!.getWorldPosition(this.packWorld);
     this.bones.get('head')!.getWorldPosition(this.headWorld);
+    this.bones.get('handL')!.getWorldPosition(this.handLWorld);
   }
 
   dispose(): void {
     for (const m of this.meshes) m.geometry.dispose();
+    if (this.shieldMesh) {
+      this.shieldMesh.geometry.dispose();
+      (this.shieldMesh.material as THREE.Material).dispose();
+    }
     this.outlineMat.dispose();
     this.cloakMat.dispose();
   }
@@ -499,9 +689,9 @@ function makeOutlineMat(): THREE.ShaderMaterial {
 
 type Add = (bone: BoneName, mat: MatKind, geo: THREE.BufferGeometry) => void;
 
-function buildBody(hero: HeroId, add: Add): void {
+function buildBody(hero: ModelVariant, add: Add): void {
   const E = (x = 0, y = 0, z = 0) => new THREE.Euler(x, y, z);
-  const bulk = hero === 'reactor' ? 1.25 : hero === 'phantom' || hero === 'needle' ? 0.9 : 1;
+  const bulk = hero === 'reactor' ? 1.25 : hero === 'forge' ? 1.1 : hero === 'servitor' ? 0.85 : hero === 'phantom' || hero === 'needle' || hero === 'blade' ? 0.92 : 1;
 
   // --- pelvis & torso (fabric suit) ---
   add('hips', 'suit', tx(new THREE.SphereGeometry(0.22, 18, 12), V3(0, 0.02, 0), E(), V3(1.3 * bulk, 0.85, 1.0 * bulk)));
@@ -673,6 +863,122 @@ function buildBody(hero: HeroId, add: Add): void {
       add('pack', 'armor', tx(new THREE.BoxGeometry(0.34, 0.42, 0.14), V3(0, 0.02, -0.05)));
       add('pack', 'glow', tx(new THREE.TorusGeometry(0.09, 0.015, 6, 20), V3(0, 0.05, 0.03)));
       for (const s of [-1, 1]) add('pack', 'metal', tx(new THREE.CylinderGeometry(0.045, 0.06, 0.09, 10), V3(s * 0.1, -0.25, 0)));
+      break;
+    }
+    case 'blade': {
+      // kabuto-inspired helmet: swept crest, cheek guards, narrow emerald visor
+      add('head', 'armor', tx(lathe([[0.001, -0.02], [0.25, 0.0], [0.29, 0.13], [0.28, 0.28], [0.19, 0.4], [0.001, 0.43]], 26), V3(0, 0.02, 0)));
+      add('head', 'visor', tx(new THREE.SphereGeometry(0.262, 24, 12, Math.PI * 1.14, Math.PI * 0.72, Math.PI * 0.4, Math.PI * 0.14), V3(0, 0.2, -0.02), E(0, Math.PI, 0)));
+      add('head', 'accent', tx(new THREE.BoxGeometry(0.035, 0.12, 0.4), V3(0, 0.46, 0.02), E(-0.25)));
+      add('head', 'glow', tx(new THREE.BoxGeometry(0.012, 0.02, 0.34), V3(0, 0.53, 0.02), E(-0.25)));
+      for (const s of [-1, 1]) {
+        add('head', 'armor', tx(new THREE.BoxGeometry(0.06, 0.2, 0.22), V3(s * 0.26, 0.12, -0.04), E(0, 0, s * 0.18)));
+        add('head', 'accent', tx(new THREE.ConeGeometry(0.05, 0.28, 4), V3(s * 0.2, 0.45, -0.05), E(0.3, 0, s * -0.9)));
+      }
+      // layered chest plates (do-maru) and lamellar skirt (kusazuri)
+      add('chest', 'armor', tx(new THREE.BoxGeometry(0.44, 0.13, 0.1), V3(0, 0.16, -0.22), E(0.14)));
+      add('chest', 'armor', tx(new THREE.BoxGeometry(0.42, 0.12, 0.1), V3(0, 0.03, -0.21), E(0.05)));
+      add('chest', 'glow', tx(new THREE.BoxGeometry(0.3, 0.012, 0.012), V3(0, 0.1, -0.275)));
+      for (let i = 0; i < 4; i++) {
+        const a = -0.7 + i * 0.47;
+        add('hips', 'armor', tx(new THREE.BoxGeometry(0.16, 0.24, 0.035), V3(Math.sin(a) * 0.27, -0.16, -Math.cos(a) * 0.22), E(0.12, a, 0)));
+      }
+      for (const s of [-1, 1]) {
+        // asymmetric shoulder: big sode on the left, light on the right
+        const big = s < 0;
+        add(s < 0 ? 'armL' : 'armR', 'armor', tx(new THREE.BoxGeometry(big ? 0.26 : 0.18, 0.05, big ? 0.3 : 0.22), V3(s * 0.05, 0.1, 0), E(0, 0, -s * 0.5)));
+        if (big) add('armL', 'accent', tx(new THREE.BoxGeometry(0.24, 0.035, 0.28), V3(-0.08, 0.02, 0), E(0, 0, 0.62)));
+        add(s < 0 ? 'foreL' : 'foreR', 'armor', tx(new THREE.CylinderGeometry(0.1, 0.085, 0.2, 10), V3(0, -0.14, 0)));
+        add(s < 0 ? 'shinL' : 'shinR', 'armor', tx(new THREE.BoxGeometry(0.16, 0.3, 0.06), V3(0, -0.15, -0.1)));
+      }
+      // compact thruster pack with a sheath (saya) across the back
+      add('pack', 'armor', tx(new THREE.BoxGeometry(0.34, 0.4, 0.14), V3(0, 0.02, -0.04)));
+      add('pack', 'dark', tx(new THREE.BoxGeometry(0.07, 0.95, 0.06), V3(0.02, 0.05, 0.08), E(0, 0, -0.6)));
+      add('pack', 'accent', tx(new THREE.BoxGeometry(0.075, 0.08, 0.07), V3(-0.23, 0.39, 0.08), E(0, 0, -0.6)));
+      add('pack', 'glow', tx(new THREE.BoxGeometry(0.02, 0.28, 0.02), V3(0, 0.02, 0.035)));
+      for (const s of [-1, 1]) add('pack', 'metal', tx(new THREE.CylinderGeometry(0.045, 0.06, 0.1, 10), V3(s * 0.11, -0.24, -0.01)));
+      break;
+    }
+    case 'forge': {
+      // welder-style helmet: flat faceplate with slit visor + headlamp
+      helmet(0.3);
+      add('head', 'armor', tx(new THREE.BoxGeometry(0.44, 0.34, 0.12), V3(0, 0.2, -0.24), E(-0.08)));
+      add('head', 'visor', tx(new THREE.BoxGeometry(0.34, 0.07, 0.03), V3(0, 0.24, -0.305), E(-0.08)));
+      add('head', 'dark', tx(new THREE.BoxGeometry(0.36, 0.04, 0.05), V3(0, 0.15, -0.3), E(-0.08)));
+      add('head', 'metal', tx(new THREE.CylinderGeometry(0.06, 0.07, 0.1, 14), V3(0.2, 0.42, -0.12), E(Math.PI / 2 - 0.3)));
+      add('head', 'glow', tx(new THREE.CylinderGeometry(0.05, 0.05, 0.01, 14), V3(0.2, 0.44, -0.175), E(Math.PI / 2 - 0.3)));
+      add('head', 'accent', tx(new THREE.TorusGeometry(0.3, 0.03, 6, 28, Math.PI), V3(0, 0.2, 0.02), E(0, Math.PI / 2, 0)));
+      // heavy work vest with tool pouches + utility belt
+      add('chest', 'armor', tx(new THREE.BoxGeometry(0.52, 0.3, 0.14), V3(0, 0.08, -0.22), E(0.1)));
+      add('chest', 'accent', tx(new THREE.BoxGeometry(0.52, 0.05, 0.15), V3(0, 0.2, -0.22), E(0.1)));
+      for (const s of [-1, 1]) add('chest', 'dark', tx(new THREE.BoxGeometry(0.12, 0.1, 0.07), V3(s * 0.15, 0.0, -0.3)));
+      add('hips', 'dark', tx(new THREE.TorusGeometry(0.28, 0.045, 6, 24), V3(0, 0.06, 0), E(Math.PI / 2)));
+      for (let i = 0; i < 5; i++) {
+        const a = -1.3 + i * 0.65;
+        add('hips', i % 2 ? 'metal' : 'accent', tx(new THREE.BoxGeometry(0.08, 0.1, 0.06), V3(Math.sin(a) * 0.3, 0.02, -Math.cos(a) * 0.26), E(0, a, 0)));
+      }
+      for (const s of [-1, 1]) {
+        add(s < 0 ? 'armL' : 'armR', 'armor', tx(new THREE.SphereGeometry(0.17, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), V3(0, 0.03, 0), E(0, 0, -s * 0.25), V3(1.15, 0.9, 1.1)));
+        add(s < 0 ? 'foreL' : 'foreR', 'armor', tx(new THREE.CylinderGeometry(0.12, 0.11, 0.22, 12), V3(0, -0.14, 0)));
+        add(s < 0 ? 'shinL' : 'shinR', 'armor', tx(new THREE.BoxGeometry(0.22, 0.28, 0.12), V3(0, -0.12, -0.08)));
+      }
+      // fabricator backpack with a folded manipulator arm
+      add('pack', 'armor', tx(new THREE.BoxGeometry(0.56, 0.58, 0.3), V3(0, 0, 0.02)));
+      add('pack', 'dark', tx(new THREE.BoxGeometry(0.44, 0.2, 0.05), V3(0, 0.08, 0.18)));
+      add('pack', 'glow', tx(new THREE.BoxGeometry(0.36, 0.03, 0.02), V3(0, 0.08, 0.21)));
+      add('pack', 'metal', tx(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8), V3(0.24, 0.42, 0.06), E(0, 0, -0.35)));
+      add('pack', 'metal', tx(new THREE.CylinderGeometry(0.03, 0.03, 0.34, 8), V3(0.12, 0.66, -0.02), E(0.9, 0, 0.6)));
+      add('pack', 'accent', tx(new THREE.BoxGeometry(0.08, 0.06, 0.12), V3(0.02, 0.74, -0.12)));
+      for (const s of [-1, 1]) add('pack', 'metal', tx(new THREE.CylinderGeometry(0.07, 0.1, 0.13, 12), V3(s * 0.18, -0.36, 0.04)));
+      break;
+    }
+    case 'hive': {
+      // hex-faceted visor dome with sensor antennae
+      helmet(0.285);
+      add('head', 'visor', tx(new THREE.SphereGeometry(0.272, 6, 4, Math.PI * 1.1, Math.PI * 0.8, Math.PI * 0.28, Math.PI * 0.42), V3(0, 0.2, -0.02), E(0, Math.PI, 0)));
+      add('head', 'armor', tx(new THREE.TorusGeometry(0.28, 0.035, 6, 6), V3(0, 0.2, 0), E(0, Math.PI / 2, 0)));
+      for (const s of [-1, 1]) {
+        add('head', 'metal', tx(new THREE.CylinderGeometry(0.008, 0.008, 0.36, 5), V3(s * 0.14, 0.5, 0.06), E(-0.3, 0, -s * 0.35)));
+        add('head', 'glow', tx(new THREE.SphereGeometry(0.022, 8, 6), V3(s * 0.2, 0.66, 0.11)));
+      }
+      // chest console + hex plates
+      add('chest', 'armor', tx(new THREE.CylinderGeometry(0.22, 0.22, 0.1, 6), V3(0, 0.1, -0.22), E(Math.PI / 2, 0, 0), V3(1.2, 1, 1)));
+      add('chest', 'glow', tx(new THREE.CylinderGeometry(0.09, 0.09, 0.02, 6), V3(0, 0.1, -0.28), E(Math.PI / 2)));
+      for (const s of [-1, 1]) {
+        add(s < 0 ? 'armL' : 'armR', 'armor', tx(new THREE.CylinderGeometry(0.15, 0.15, 0.08, 6), V3(s * 0.02, 0.06, 0), E(0, 0, -s * 0.4)));
+        add(s < 0 ? 'foreL' : 'foreR', 'accent', tx(new THREE.BoxGeometry(0.16, 0.16, 0.1), V3(0, -0.14, -0.06)));
+      }
+      // drone hive backpack: hex frame with three docked micro-drones
+      add('pack', 'armor', tx(new THREE.CylinderGeometry(0.34, 0.34, 0.2, 6), V3(0, 0.02, 0.02), E(Math.PI / 2, 0, 0)));
+      add('pack', 'dark', tx(new THREE.CylinderGeometry(0.28, 0.28, 0.21, 6), V3(0, 0.02, 0.03), E(Math.PI / 2, 0, 0)));
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2 + Math.PI / 2;
+        const x = Math.cos(a) * 0.16;
+        const y = Math.sin(a) * 0.16 + 0.02;
+        add('pack', 'accent', tx(new THREE.SphereGeometry(0.075, 10, 8), V3(x, y, 0.14), E(), V3(1, 0.7, 1)));
+        add('pack', 'glow', tx(new THREE.SphereGeometry(0.025, 6, 6), V3(x, y, 0.2)));
+      }
+      for (const s of [-1, 1]) add('pack', 'metal', tx(new THREE.CylinderGeometry(0.05, 0.07, 0.1, 10), V3(s * 0.13, -0.33, 0.02)));
+      break;
+    }
+    case 'servitor': {
+      // humanoid work-drone: no pressure suit, exposed actuators, single optic
+      add('head', 'armor', tx(new THREE.BoxGeometry(0.3, 0.26, 0.3), V3(0, 0.17, 0)));
+      add('head', 'dark', tx(new THREE.BoxGeometry(0.26, 0.12, 0.05), V3(0, 0.18, -0.16)));
+      add('head', 'glow', tx(new THREE.CylinderGeometry(0.05, 0.05, 0.03, 14), V3(0, 0.18, -0.185), E(Math.PI / 2)));
+      add('head', 'metal', tx(new THREE.CylinderGeometry(0.008, 0.008, 0.24, 5), V3(0.1, 0.4, 0.05)));
+      add('chest', 'armor', tx(new THREE.BoxGeometry(0.46, 0.3, 0.3), V3(0, 0.1, -0.02)));
+      add('chest', 'accent', tx(new THREE.BoxGeometry(0.2, 0.08, 0.04), V3(0, 0.16, -0.18)));
+      add('chest', 'glow', tx(new THREE.BoxGeometry(0.14, 0.02, 0.02), V3(0, 0.02, -0.18)));
+      for (const s of [-1, 1]) {
+        add(s < 0 ? 'armL' : 'armR', 'metal', tx(new THREE.SphereGeometry(0.1, 12, 8), V3(0, 0, 0)));
+        add(s < 0 ? 'armL' : 'armR', 'armor', tx(new THREE.BoxGeometry(0.14, 0.24, 0.14), V3(0, -0.16, 0)));
+        add(s < 0 ? 'foreL' : 'foreR', 'armor', tx(new THREE.BoxGeometry(0.12, 0.22, 0.12), V3(0, -0.13, 0)));
+        add(s < 0 ? 'legL' : 'legR', 'armor', tx(new THREE.BoxGeometry(0.16, 0.3, 0.16), V3(0, -0.2, 0)));
+        add(s < 0 ? 'shinL' : 'shinR', 'accent', tx(new THREE.BoxGeometry(0.14, 0.24, 0.14), V3(0, -0.18, -0.02)));
+      }
+      add('pack', 'dark', tx(new THREE.BoxGeometry(0.3, 0.3, 0.14), V3(0, 0, -0.06)));
+      add('pack', 'glow', tx(new THREE.BoxGeometry(0.2, 0.02, 0.02), V3(0, 0.08, 0.015)));
       break;
     }
   }

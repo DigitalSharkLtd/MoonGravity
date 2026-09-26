@@ -3,6 +3,8 @@ import { StructureBuilder, Frame } from './Builder';
 import * as P from './Prefabs';
 import { MapDef } from './MapDefs';
 import { TerrainData } from './TerrainGen';
+import { Kit, frameAt } from './Kit';
+import * as C from './Complexes';
 
 export interface SpawnPoint {
   pos: THREE.Vector3;
@@ -18,6 +20,8 @@ export type PickupKind = 'o2' | 'ammo' | 'armor' | 'grenade';
 export interface PickupSpot {
   pos: THREE.Vector3;
   kind: PickupKind;
+  /** on an upper floor / roof: pos.y is authoritative (not snapped to the terrain) */
+  elevated?: boolean;
 }
 export interface LayoutInfo {
   spawns: SpawnPoint[];
@@ -41,8 +45,15 @@ function F(b: StructureBuilder, x: number, z: number, rot = 0): Frame {
   return { x, y: b.ground(x, z), z, rot };
 }
 
+/** Dev hook (world preview): replaces the map's structures with a custom builder. */
+export const devLayout: { fn?: (b: StructureBuilder, def: MapDef, info: LayoutInfo, top: number, floorY: number) => void } = {};
+
 export function buildLayout(b: StructureBuilder, def: MapDef, td: TerrainData): LayoutInfo {
   const info: LayoutInfo = { spawns: [], controlPoints: [], pickups: [], podZones: [], perches: [], baseCenters: [], keepOut: [] };
+  if (devLayout.fn) {
+    devLayout.fn(b, def, info, td.mineTop, td.mineTop - def.mine.depth);
+    return info;
+  }
   const mineTop = td.mineTop;
   const m = def.mine;
   const floorY = mineTop - m.depth;
@@ -50,8 +61,8 @@ export function buildLayout(b: StructureBuilder, def: MapDef, td: TerrainData): 
   if (def.id === 'duel') buildDuel(b, def, info, mineTop, floorY);
   else if (def.id === 'quarry') buildQuarry(b, def, info, mineTop, floorY);
   else buildFront(b, def, info, mineTop, floorY);
-  // spawns: lift slightly above ground
-  for (const s of info.spawns) s.pos.y = b.ground(s.pos.x, s.pos.z) + 0.3;
+  // spawns: keep explicit heights (interiors); only snap spawns that are below the terrain
+  for (const s of info.spawns) s.pos.y = Math.max(s.pos.y, b.ground(s.pos.x, s.pos.z) + 0.3);
   return info;
 }
 
@@ -205,144 +216,43 @@ function buildQuarry(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: nu
 }
 
 // ---------------------------------------------------------------------------
-// 4v4 — "Tycho Front": two fortified bases, three control points around the mine.
+// 4v4 — "Tycho Front": two star-forts, A processing plant, B drill rig in the mine, C silo complex,
+// spaceport flank (north) and science lab flank (south).
+function pushMarkers(info: LayoutInfo, m: C.Markers, team: number | null, o: { spawns?: boolean; cp?: 'A' | 'B' | 'C'; cpR?: number } = {}): void {
+  for (const p of m.pickups) info.pickups.push({ pos: p.pos.clone(), kind: p.kind, elevated: p.elevated || undefined });
+  for (const p of m.perches) info.perches.push(p.clone());
+  for (const k of m.keep) info.keepOut.push(k);
+  if (o.spawns) for (const sp of m.spawns) info.spawns.push({ pos: sp.pos.clone(), yaw: sp.yaw, team: team ?? -1 });
+  if (o.cp && m.cp) info.controlPoints.push({ id: o.cp, pos: m.cp.clone(), radius: o.cpR ?? 8 });
+}
+
 function buildFront(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: number, floorY: number): void {
-  // --- the mine ---
+  // --- B: the mine ---
   P.drillRig(b, F(b, 0, 0, Math.PI / 4));
-  info.controlPoints.push({ id: 'B', pos: V(0, floorY, 0), radius: 10 });
-  P.bridge(b, -15, -52, -15, 52, top + 0.8);
-  P.bridge(b, 15, -52, 15, 52, top + 0.8);
-  for (const z of [-26, 26]) {
-    P.pylon(b, -15, z, top - 2.1);
-    P.pylon(b, 15, z, top - 2.1);
+  info.controlPoints.push({ id: 'B', pos: V(0, floorY, 0), radius: 9 });
+  for (const x of [-13, 13]) {
+    P.bridge(b, x, -34, x, 34, top + 0.8);
+    P.pylon(b, x, -16, top - 2.1);
+    P.pylon(b, x, 16, top - 2.1);
   }
-  info.perches.push(V(-15, top + 0.9, 0), V(15, top + 0.9, 0));
-  P.conveyor(b, -9, floorY + 1.4, 9, -60, top + 5, 9);
-  P.conveyor(b, 9, floorY + 1.4, -9, 60, top + 5, -9);
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2 + 0.31;
-    P.lightPole(b, F(b, Math.cos(a) * 54, Math.sin(a) * 54, -a));
-  }
-  P.oreCluster(b, V(8, 0, 8), 1.4, 41);
-  P.oreCluster(b, V(-9, 0, -7), 1.3, 42);
-
-  // --- control points A / C: processing plant & ore silos ---
-  P.refinery(b, F(b, -70, 0, Math.PI / 2), null);
-  info.controlPoints.push({ id: 'A', pos: V(-70, b.ground(-70, 0), 9), radius: 9 });
-  P.silos(b, F(b, 70, 0, -Math.PI / 2), null);
-  info.controlPoints.push({ id: 'C', pos: V(70, b.ground(70, 0), -8), radius: 9 });
-  info.perches.push(V(70, b.ground(70, 0) + 12.3, 0));
-
-  // --- flanks ---
-  P.commTower(b, F(b, 0, 76), 16, null);
-  P.commTower(b, F(b, 0, -76), 16, null);
-  info.perches.push(V(0, b.ground(0, 76) + 16.5, 76), V(0, b.ground(0, -76) + 16.5, -76));
-  P.wreck(b, F(b, -40, 70, 0.4));
-  P.wreck(b, F(b, 42, -72, 2.6));
-  P.bunker(b, F(b, 36, 64, -0.3), null);
-  P.bunker(b, F(b, -36, -64, 0.3), null);
-  P.tankFarm(b, F(b, -30, 84, 0), null);
-  P.tankFarm(b, F(b, 30, -84, Math.PI), null);
-  P.containers(b, F(b, 48, 40, 0.6), [
-    [0, 0, 0, 0],
-    [2.6, 0, 0, 0],
-  ], 51);
-  P.containers(b, F(b, -48, -40, 0.6), [
-    [0, 0, 0, 0],
-    [2.6, 0, 0, 0],
-  ], 52);
-  P.containers(b, F(b, -50, 42, -0.5), [
-    [0, 0, 0, 0],
-    [1.3, 0, 1, 0.2],
-  ], 53);
-  P.containers(b, F(b, 50, -42, -0.5), [
-    [0, 0, 0, 0],
-    [1.3, 0, 1, 0.2],
-  ], 54);
-  for (const [x, z, r] of [
-    [-92, 22, 0.3],
-    [-92, -22, -0.3],
-    [92, 22, -0.3],
-    [92, -22, 0.3],
-    [-40, 12, 1.6],
-    [40, -12, 1.6],
-  ] as const)
-    P.barricade(b, F(b, x, z, Math.PI / 2 + r), 5, null);
-  P.radar(b, F(b, 0, 90), null);
-  P.solarArray(b, F(b, 22, 88, 0), 3);
-  P.solarArray(b, F(b, -22, -88, 0), 3);
-
+  info.perches.push(V(-13, top + 0.9, 0), V(13, top + 0.9, 0));
+  P.oreCluster(b, V(6, 0, 6.5), 1.3, 41);
+  P.oreCluster(b, V(-6.5, 0, -6), 1.2, 42);
+  // --- A / C ---
+  const mA = C.markers();
+  C.processingPlant(new Kit(b, frameAt(b, -46, 0, 0)), mA, { conveyorTo: V(-6, floorY + 1.4, 7), seed: 1 });
+  pushMarkers(info, mA, null, { cp: 'A' });
+  const mC = C.markers();
+  C.siloComplex(new Kit(b, frameAt(b, 46, 0, Math.PI)), mC, { seed: 2 });
+  pushMarkers(info, mC, null, { cp: 'C' });
+  P.conveyor(b, 6, floorY + 1.4, -7, 37, top + 5.5, 4);
   // --- bases ---
   for (const team of [0, 1]) {
     const s = team === 0 ? -1 : 1;
-    const bx = s * 132;
-    const face = team === 0 ? 0 : Math.PI; // local +X → map center
-    // front wall with central gate + side gates
-    P.armorWall(b, s * 103, -52, s * 103, -9, 5, team);
-    P.armorWall(b, s * 103, 9, s * 103, 52, 5, team);
-    P.armorWall(b, s * 103, -52, s * 160, -56, 5, team);
-    P.armorWall(b, s * 103, 52, s * 160, 56, 5, team);
-    P.commTower(b, F(b, s * 105, -48), 10, team);
-    P.commTower(b, F(b, s * 105, 48), 10, team);
-    info.perches.push(V(s * 105, b.ground(s * 105, -48) + 10.5, -48), V(s * 105, b.ground(s * 105, 48) + 10.5, 48));
-    P.bunker(b, F(b, s * 98, -14, Math.PI / 2), team);
-    P.bunker(b, F(b, s * 98, 14, Math.PI / 2), team);
-    // command dome
-    P.domeHab(b, F(b, s * 142, 0, face), 10, team);
-    // hangar opening toward the centre
-    P.hangar(b, F(b, s * 128, 34, -s * Math.PI / 2), 16, 20, 9, team);
-    // habitat row
-    P.habModule(b, F(b, s * 122, -22, Math.PI / 2), 12, team);
-    P.habModule(b, F(b, s * 150, -24, Math.PI / 2), 10, team);
-    P.landingPad(b, F(b, s * 136, -42), 7, team);
-    P.commTower(b, F(b, s * 157, 32), 24, team);
-    info.perches.push(V(s * 157, b.ground(s * 157, 32) + 24.5, 32));
-    P.radar(b, F(b, s * 158, 8), team);
-    P.solarArray(b, F(b, s * 158, -44, Math.PI / 2), 4);
-    P.tankFarm(b, F(b, s * 116, 48, 0), team);
-    P.containers(b, F(b, s * 114, -40, 0), [
-      [0, 0, 0, 0],
-      [2.6, 0, 0, 0],
-      [1.3, 0, 1, 0],
-    ], 60 + team);
-    P.o2Station(b, F(b, s * 126, -6, s < 0 ? Math.PI / 2 : -Math.PI / 2), team);
-    P.o2Station(b, F(b, s * 126, 8, s < 0 ? Math.PI / 2 : -Math.PI / 2), team);
-    P.spawnGate(b, F(b, s * 152, -12, s < 0 ? -Math.PI / 2 : Math.PI / 2), team);
-    P.spawnGate(b, F(b, s * 152, 14, s < 0 ? -Math.PI / 2 : Math.PI / 2), team);
-    P.lightPole(b, F(b, s * 110, -6, face));
-    P.lightPole(b, F(b, s * 110, 6, face));
-    info.pickups.push(
-      { pos: V(s * 124, 0, -6), kind: 'o2' },
-      { pos: V(s * 124, 0, 8), kind: 'o2' },
-      { pos: V(s * 128, 0, 34), kind: 'armor' },
-      { pos: V(s * 114, 0, -34), kind: 'ammo' },
-      { pos: V(s * 112, 0, 42), kind: 'grenade' },
-    );
-    info.baseCenters.push(V(bx, b.ground(bx, 0), 0));
-    info.keepOut.push({ x: bx, z: 0, r: 64 });
-    for (let i = 0; i < 8; i++) addSpawn(b, info, s * (146 + (i % 2) * 5), -14 + Math.floor(i / 2) * 8.5, team, 0, 0);
+    const m = C.markers();
+    C.fortress(new Kit(b, frameAt(b, s * 88, 0, team === 0 ? 0 : Math.PI)), team, m);
+    pushMarkers(info, m, team, { spawns: true });
+    info.baseCenters.push(V(s * 88, b.ground(s * 88, 0), 0));
   }
-  info.pickups.push(
-    { pos: V(-58, 0, 10), kind: 'ammo' },
-    { pos: V(58, 0, -10), kind: 'ammo' },
-    { pos: V(0, 0, 66), kind: 'o2' },
-    { pos: V(0, 0, -66), kind: 'o2' },
-    { pos: V(0, 0, 11), kind: 'armor' },
-    { pos: V(-36, 0, 58), kind: 'grenade' },
-    { pos: V(36, 0, -58), kind: 'grenade' },
-  );
-  info.podZones.push(V(0, 0, 0), V(0, 0, 62), V(0, 0, -62), V(-40, 0, 0), V(40, 0, 0));
-  info.keepOut.push(
-    { x: -70, z: 0, r: 16 },
-    { x: 70, z: 0, r: 12 },
-    { x: 0, z: 76, r: 6 },
-    { x: 0, z: -76, r: 6 },
-    { x: -40, z: 70, r: 6 },
-    { x: 42, z: -72, r: 6 },
-    { x: 36, z: 64, r: 6 },
-    { x: -36, z: -64, r: 6 },
-    { x: -30, z: 84, r: 7 },
-    { x: 30, z: -84, r: 7 },
-    { x: 0, z: 90, r: 5 },
-  );
+  info.podZones.push(V(0, 0, 0), V(0, 0, 50), V(0, 0, -50), V(-30, 0, 30), V(30, 0, -30));
 }

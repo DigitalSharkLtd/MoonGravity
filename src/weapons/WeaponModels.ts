@@ -141,6 +141,54 @@ export function buildWeaponModel(id: WeaponId, tint?: number): WeaponModel {
       muzzle.position.set(0, 0.02, -0.52);
       break;
     }
+    case 'blade': {
+      // plasma katana: grip + guard + emissive blade core with a metal spine
+      const grip = cylZ(g, 0.024, 0.2, 0, 0, 0.06, gun(), 10);
+      grip.rotation.x = Math.PI / 2;
+      box(g, 0.12, 0.03, 0.05, 0, 0, -0.05, accent);
+      const bladeCore = box(g, 0.012, 0.075, 0.95, 0, 0.0, -0.55, glow);
+      glows.push(bladeCore);
+      box(g, 0.016, 0.02, 0.95, 0, 0.045, -0.55, gray());
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.14, 4), glow);
+      tip.rotation.x = -Math.PI / 2;
+      tip.position.set(0, 0.005, -1.08);
+      g.add(tip);
+      glows.push(tip);
+      muzzle.position.set(0, 0, -0.9);
+      break;
+    }
+    case 'riveter': {
+      box(g, 0.13, 0.15, 0.42, 0, 0.02, -0.15, toonMat(0xd8c9a8, { spec: 0.5 }));
+      cylZ(g, 0.045, 0.3, 0, 0.04, -0.46, gun(), 10);
+      cylZ(g, 0.06, 0.05, 0, 0.04, -0.62, gray(), 10);
+      // rivet magazine drum on top
+      const drum = cylZ(g, 0.06, 0.12, 0, 0.14, -0.1, toonMat(0xff9f43, { spec: 0.6 }), 12);
+      drum.rotation.set(0, 0, Math.PI / 2);
+      spin = drum;
+      box(g, 0.06, 0.16, 0.08, 0, -0.09, 0.0, gun(), -0.25);
+      box(g, 0.08, 0.1, 0.18, 0, 0.0, 0.16, gun());
+      const coil = box(g, 0.135, 0.03, 0.12, 0, -0.03, -0.3, glow);
+      glows.push(coil);
+      muzzle.position.set(0, 0.04, -0.66);
+      break;
+    }
+    case 'burst': {
+      box(g, 0.08, 0.12, 0.56, 0, 0.03, -0.2, toonMat(0x3a3f4c, { spec: 0.8 }));
+      box(g, 0.085, 0.05, 0.3, 0, 0.1, -0.16, toonMat(0xe6e14d, { spec: 0.5 }));
+      cylZ(g, 0.026, 0.26, 0, 0.03, -0.58, gun());
+      box(g, 0.06, 0.16, 0.08, 0, -0.08, -0.02, gun(), -0.25);
+      box(g, 0.055, 0.2, 0.09, 0, -0.1, -0.26, gun(), 0.12);
+      box(g, 0.07, 0.1, 0.24, 0, 0.0, 0.18, gun());
+      cylZ(g, 0.03, 0.18, 0, 0.17, -0.12, gun()); // scope
+      const lens = cylZ(g, 0.032, 0.01, 0, 0.17, -0.215, glow);
+      glows.push(lens);
+      // drone antenna
+      const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.18), gray());
+      ant.position.set(0.04, 0.2, 0.05);
+      g.add(ant);
+      muzzle.position.set(0, 0.03, -0.72);
+      break;
+    }
     case 'nuke': {
       const tube = cylZ(g, 0.13, 1.1, 0, 0.05, -0.3, toonMat(0xffc21a, { spec: 0.5 }), 14);
       tube.castShadow = true;

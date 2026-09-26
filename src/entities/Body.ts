@@ -10,10 +10,12 @@ export interface MoveInput {
   crouch: boolean;
   yaw: number; // look delta (radians) around body up this step
   pitch: number; // look delta
+  prone: boolean; // pressed: toggle prone
+  roll: boolean; // pressed: combat roll
 }
 
 export function emptyInput(): MoveInput {
-  return { forward: 0, strafe: 0, jump: false, jumpPressed: false, sprint: false, crouch: false, yaw: 0, pitch: 0 };
+  return { forward: 0, strafe: 0, jump: false, jumpPressed: false, sprint: false, crouch: false, yaw: 0, pitch: 0, prone: false, roll: false };
 }
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
@@ -33,6 +35,28 @@ export interface BodyEvents {
   jumped: boolean;
   footstep: boolean;
   jetStart: boolean;
+  rolled: boolean;
+  slid: boolean;
+  mantled: boolean;
+  grappleEnd: boolean;
+  airbrake: boolean;
+}
+
+export type Stance = 'stand' | 'crouch' | 'prone' | 'slide' | 'roll';
+
+interface Grapple {
+  anchor: THREE.Vector3;
+  normal: THREE.Vector3;
+  metal: boolean;
+  t: number;
+  braking: boolean;
+}
+
+interface Mantle {
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  t: number;
+  dur: number;
 }
 
 /**
@@ -71,7 +95,17 @@ export class Body {
   private stepDist = 0;
   private wasGrounded = false;
   private contacts: Contact[] = [];
-  events: BodyEvents = { landed: 0, attached: false, detached: false, jumped: false, footstep: false, jetStart: false };
+  events: BodyEvents = { landed: 0, attached: false, detached: false, jumped: false, footstep: false, jetStart: false, rolled: false, slid: false, mantled: false, grappleEnd: false, airbrake: false };
+  stance: Stance = 'stand';
+  proneOn = false;
+  proneHeight = 0.75;
+  slideT = 0;
+  rollT = 0;
+  rollCd = 0;
+  rollDir = new THREE.Vector3();
+  grapple: Grapple | null = null;
+  mantle: Mantle | null = null;
+  private prevCrouch = false;
   world: PhysicsWorld;
 
   constructor(world: PhysicsWorld) {
@@ -123,6 +157,45 @@ export class Body {
     this.magDisabled = 0;
     this.detachTimer = 0;
     this.flipTimer = 0;
+    this.grapple = null;
+    this.mantle = null;
+    this.proneOn = false;
+    this.slideT = this.rollT = this.rollCd = 0;
+    this.stance = 'stand';
+    this.crouching = false;
+    this.height = this.standHeight;
+  }
+
+  /** Fire the grappling hook: pull toward `anchor` with air brakes near the end. */
+  startGrapple(anchor: THREE.Vector3, normal: THREE.Vector3, metal: boolean): void {
+    this.grapple = { anchor: anchor.clone(), normal: normal.clone(), metal, t: 0, braking: false };
+    this.proneOn = false;
+    this.slideT = 0;
+    this.rollT = 0;
+    this.grounded = false;
+    this.attached = false;
+    this.detachTimer = 0.25;
+    this.mantle = null;
+  }
+
+  stopGrapple(keepMomentum = true): void {
+    if (!this.grapple) return;
+    const g = this.grapple;
+    this.grapple = null;
+    this.events.grappleEnd = true;
+    if (!keepMomentum) this.vel.multiplyScalar(0.35);
+    // magnetic finish: clamp onto the metal surface we were pulled to
+    if (g.metal && this.magActive && g.normal.dot(this.up) < 0.7) {
+      this.targetUp.copy(g.normal);
+      this.attached = true;
+      this.flipTimer = 0.3;
+      this.pivotMid = true;
+      this.wallLock = 0.45;
+      this.detachTimer = 0;
+    } else if (g.normal.y > 0.7) {
+      // pulled onto a ledge / roof: small hop so we land on top
+      this.vel.y = Math.max(this.vel.y, 1.8);
+    }
   }
 
   setYaw(yaw: number): void {
@@ -148,6 +221,8 @@ export class Body {
     ev.jumped = false;
     ev.footstep = false;
     ev.jetStart = false;
+    ev.rolled = ev.slid = ev.mantled = ev.grappleEnd = ev.airbrake = false;
+    if (this.rollCd > 0) this.rollCd -= dt;
     if (this.magDisabled > 0) this.magDisabled -= dt;
     if (this.detachTimer > 0) this.detachTimer -= dt;
     if (this.flipTimer > 0) this.flipTimer -= dt;
@@ -164,7 +239,56 @@ export class Body {
     this.quat.normalize();
     this.up.set(0, 1, 0).applyQuaternion(this.quat);
 
-    // ---- crouch ----
+    // ---- mantle (kinematic vault onto a ledge) ----
+    if (this.mantle) {
+      const m = this.mantle;
+      m.t += dt;
+      const k = Math.min(1, m.t / m.dur);
+      const e = k * k * (3 - 2 * k);
+      // up first, then forward: an arc that clears the ledge edge
+      const up = Math.min(1, e * 1.6);
+      const fw = Math.max(0, (e - 0.35) / 0.65);
+      this.pos.set(m.from.x + (m.to.x - m.from.x) * fw, m.from.y + (m.to.y - m.from.y) * up, m.from.z + (m.to.z - m.from.z) * fw);
+      this.vel.set(0, 0, 0);
+      if (k >= 1) {
+        this.mantle = null;
+        this.grounded = true;
+      }
+      this.height += (this.standHeight * 0.8 - this.height) * Math.min(1, dt * 10);
+      return;
+    }
+
+    // ---- stance: crouch / slide / prone / roll ----
+    const horizSpeed = Math.hypot(this.vel.x, this.vel.z);
+    if (input.prone && this.grounded && this.up.y > 0.8) {
+      if (this.proneOn) {
+        _p.copy(this.pos).addScaledVector(this.up, this.crouchHeight - this.radius);
+        if (!this.world.pointBlocked(_p, this.radius * 0.9)) this.proneOn = false;
+      } else this.proneOn = true;
+    }
+    const crouchEdge = input.crouch && !this.prevCrouch;
+    this.prevCrouch = input.crouch;
+    if (crouchEdge && this.grounded && horizSpeed > 4.2 * Math.min(1, this.speedMul) && this.slideT <= 0 && !this.proneOn) {
+      this.slideT = 0.95;
+      _p.set(this.vel.x, 0, this.vel.z).normalize();
+      this.vel.addScaledVector(_p, 2.2);
+      ev.slid = true;
+    }
+    if (input.roll && this.rollCd <= 0 && this.grounded && !(this.attached && this.up.y < 0.8) && !this.proneOn) {
+      this.rollT = 0.55;
+      this.rollCd = 2.8;
+      const f0 = this.forward(_a);
+      const r0 = this.right(_b);
+      this.rollDir.set(0, 0, 0).addScaledVector(f0, input.forward).addScaledVector(r0, input.strafe);
+      if (this.rollDir.lengthSq() < 0.01) this.rollDir.copy(f0).negate();
+      this.rollDir.y = 0;
+      this.rollDir.normalize();
+      this.vel.set(this.rollDir.x * 7.2, this.vel.y, this.rollDir.z * 7.2);
+      this.slideT = 0;
+      ev.rolled = true;
+    }
+    if (this.slideT > 0) this.slideT -= dt;
+    if (this.rollT > 0) this.rollT -= dt;
     const wantCrouch = input.crouch;
     if (wantCrouch !== this.crouching) {
       if (wantCrouch) this.crouching = true;
@@ -174,7 +298,8 @@ export class Body {
         if (!this.world.pointBlocked(_p, this.radius * 0.9)) this.crouching = false;
       }
     }
-    const targetH = this.crouching ? this.crouchHeight : this.standHeight;
+    this.stance = this.rollT > 0 ? 'roll' : this.slideT > 0 ? 'slide' : this.proneOn ? 'prone' : this.crouching ? 'crouch' : 'stand';
+    const targetH = this.stance === 'prone' ? this.proneHeight : this.stance === 'roll' || this.stance === 'slide' ? 1.0 : this.crouching ? this.crouchHeight : this.standHeight;
     this.height += (targetH - this.height) * Math.min(1, dt * 12);
 
     // ---- wish direction ----
@@ -184,12 +309,41 @@ export class Body {
     const wl = wish.length();
     if (wl > 1) wish.divideScalar(wl);
     const sprinting = input.sprint && input.forward > 0.3 && !this.crouching;
-    const speed = (this.crouching ? 2.3 : sprinting ? 6.8 : 4.4) * this.speedMul;
+    const speed = (this.stance === 'prone' ? 1.3 : this.crouching ? 2.3 : sprinting ? 6.8 : 4.4) * this.speedMul;
 
     let magActive = this.magActive && this.detachTimer <= 0;
     let jumpedNow = false;
 
-    if (this.grounded) {
+    if (this.grapple) {
+      // ---- grappling hook: strong pull, air brakes near the anchor ----
+      const gp = this.grapple;
+      gp.t += dt;
+      const c = this.center(_p);
+      const dir = _n.copy(gp.anchor).sub(c);
+      const d = dir.length();
+      dir.divideScalar(Math.max(d, 1e-4));
+      const sp = this.vel.length();
+      const brakeDist = Math.min(10, Math.max(2.4, sp * 0.42));
+      if (input.jumpPressed) {
+        // slingshot release: keep the momentum, add a hop
+        this.stopGrapple(true);
+        this.vel.addScaledVector(this.up, 2.5);
+        ev.jumped = true;
+      } else if (d < 1.5 || gp.t > 3.5) this.stopGrapple(false);
+      else if (d < brakeDist) {
+        gp.braking = true;
+        ev.airbrake = true;
+        this.vel.multiplyScalar(Math.exp(-dt * 6.5));
+        this.vel.addScaledVector(dir, 9 * dt);
+      } else {
+        this.vel.addScaledVector(dir, 46 * dt);
+        if (sp > 30) this.vel.multiplyScalar(30 / sp);
+      }
+      this.vel.y -= MOON_G * 0.25 * dt;
+      this.grounded = false;
+      this.attached = false;
+      this.jetting = false;
+    } else if (this.grounded) {
       const n = this.groundNormal;
       // project wish onto ground plane
       const wd = wish.dot(n);
@@ -199,8 +353,18 @@ export class Body {
       const vn = this.vel.dot(n);
       const vt = this.vel.addScaledVector(n, -vn); // in-place: tangential
       const target = wg.multiplyScalar(speed);
-      const accel = this.attached ? 38 : 24; // lunar regolith has poor traction
-      const decel = this.attached ? 30 : 10;
+      let accel = this.attached ? 38 : 24; // lunar regolith has poor traction
+      let decel = this.attached ? 30 : 10;
+      if (this.stance === 'slide') {
+        // sliding on regolith: carry momentum, only light steering
+        target.copy(vt).multiplyScalar(0.6);
+        accel = 2.5;
+        decel = 2.5;
+      } else if (this.stance === 'roll') {
+        target.copy(this.rollDir).multiplyScalar(this.rollT > 0.15 ? 7.2 : 3);
+        accel = 30;
+        decel = 30;
+      }
       _n.copy(target).sub(vt);
       const dl = _n.length();
       const rate = (target.lengthSq() > 0.01 ? accel : decel) * dt;
@@ -210,8 +374,11 @@ export class Body {
       this.vel.copy(vt).addScaledVector(n, this.attached ? -0.5 : Math.min(0, vn));
       if (!this.attached) this.vel.y -= MOON_G * dt;
 
-      if (input.jumpPressed) {
-        const js = this.crouching ? 2.4 : 3.3;
+      if (input.jumpPressed && this.proneOn) {
+        // jump from prone = stand up
+        this.proneOn = false;
+      } else if (input.jumpPressed) {
+        const js = this.stance === 'slide' ? 3.6 : this.crouching ? 2.4 : 3.3;
         if (this.attached && this.up.y < 0.8) {
           // push off a wall/ceiling
           this.vel.addScaledVector(this.up, 3.6);
@@ -305,6 +472,41 @@ export class Body {
           }
         }
         break;
+      }
+    }
+
+    // ---- mantle: vault onto ledges up to ~2.4 m when pushing forward into them ----
+    if (!this.grapple && !this.mantle && this.up.y > 0.7 && input.forward > 0.3 && this.stance !== 'prone') {
+      let blocked = false;
+      for (const c of contacts) {
+        const sph = (c as Contact & { sphere?: number }).sphere ?? 0;
+        if (sph >= 1 && c.normal.dot(this.up) < 0.35 && -c.normal.dot(wish) > 0.4 * Math.max(wl, 0.3)) blocked = true;
+      }
+      const approaching = !this.wasGrounded && this.vel.y < 2.5;
+      if (blocked || approaching) {
+        const fh = _a.set(0, 0, -1).applyQuaternion(this.quat);
+        fh.y = 0;
+        if (fh.lengthSq() > 1e-4) {
+          fh.normalize();
+          const origin = _p.copy(this.pos).addScaledVector(fh, r + 0.45);
+          origin.y += 2.6;
+          const hit = this.world.raycast(origin, _n.set(0, -1, 0), 2.6, { forMove: true });
+          if (hit && hit.normal.y > 0.7) {
+            const lift = hit.point.y - this.pos.y;
+            if (lift > 0.55 && lift < 2.45 && (blocked || lift > 0.2)) {
+              const land = _b.copy(hit.point);
+              land.y += r + 0.08;
+              if (!this.world.pointBlocked(land, r * 0.9)) {
+                land.y += 1.0;
+                if (!this.world.pointBlocked(land, r * 0.85)) {
+                  this.mantle = { from: this.pos.clone(), to: hit.point.clone().addScaledVector(fh, 0.2), t: 0, dur: 0.24 + lift * 0.09 };
+                  this.vel.set(0, 0, 0);
+                  ev.mantled = true;
+                }
+              }
+            }
+          }
+        }
       }
     }
 

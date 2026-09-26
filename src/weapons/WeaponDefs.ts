@@ -6,7 +6,7 @@ export interface WeaponDef {
   id: WeaponId;
   slot: WeaponSlotKind;
   /** hitscan: instant ray with tracer; projectile: simulated shot; designator: marks a target for an orbital strike */
-  kind: 'hitscan' | 'projectile' | 'designator';
+  kind: 'hitscan' | 'projectile' | 'designator' | 'melee';
   damage: number;
   headMul: number;
   /** multiplier for damage dealt to suit integrity (explosives & rails tear suits apart) */
@@ -35,6 +35,9 @@ export interface WeaponDef {
   falloffEnd: number;
   falloffMin: number; // multiplier at falloffEnd
   heal: number; // healing on allies (sealer)
+  burstCount: number; // shots per trigger pull (burst rifle)
+  meleeRange: number; // melee reach (m)
+  meleeArc: number; // melee cone half-angle (rad)
   color: number; // tracer / glow colour
   moveMul: number; // movement speed multiplier while held
 }
@@ -67,6 +70,9 @@ const base: Omit<WeaponDef, 'id' | 'slot' | 'kind' | 'sfx' | 'color'> = {
   falloffEnd: 1000,
   falloffMin: 1,
   heal: 0,
+  burstCount: 1,
+  meleeRange: 0,
+  meleeArc: 0,
 };
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
@@ -212,6 +218,75 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     heal: 26,
     sfx: 'plasma',
     color: 0x7dff9a,
+  },
+  // Plasma katana (Blade): fast arcs of melee damage, cleaves several enemies
+  blade: {
+    ...base,
+    id: 'blade',
+    slot: 'primary',
+    kind: 'melee',
+    damage: 58,
+    headMul: 1.2,
+    suitMul: 1.2,
+    interval: 0.42,
+    auto: true,
+    mag: 999,
+    reserve: 0,
+    reload: 0,
+    spreadHip: 0,
+    spreadAds: 0,
+    recoil: 0.02,
+    range: 3.2,
+    meleeRange: 3.2,
+    meleeArc: 0.9,
+    sfx: 'arc',
+    color: 0x39e3a8,
+    moveMul: 1.05,
+  },
+  // Rivet gun (Forge): heavy fast bolts with a slight lunar drop
+  riveter: {
+    ...base,
+    id: 'riveter',
+    slot: 'primary',
+    kind: 'projectile',
+    damage: 24,
+    headMul: 2,
+    suitMul: 0.9,
+    interval: 0.15,
+    auto: true,
+    mag: 30,
+    reserve: 180,
+    reload: 1.9,
+    spreadHip: 0.014,
+    spreadAds: 0.006,
+    recoil: 0.018,
+    speed: 115,
+    gravity: 0.25,
+    sfx: 'glauncher',
+    color: 0xff9f43,
+  },
+  // Burst rifle (Hive): 3-round bursts, precise at range
+  burst: {
+    ...base,
+    id: 'burst',
+    slot: 'primary',
+    kind: 'hitscan',
+    damage: 17,
+    headMul: 2,
+    suitMul: 0.75,
+    interval: 0.45,
+    burstCount: 3,
+    mag: 30,
+    reserve: 180,
+    reload: 1.8,
+    spreadHip: 0.016,
+    spreadAds: 0.004,
+    recoil: 0.014,
+    falloffStart: 40,
+    falloffEnd: 80,
+    falloffMin: 0.6,
+    sfx: 'pulse',
+    color: 0xe6e14d,
   },
   // Tactical nuclear rocket launcher "Pocket Sun"
   nuke: {

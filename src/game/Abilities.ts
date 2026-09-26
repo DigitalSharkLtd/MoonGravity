@@ -8,6 +8,8 @@ import { Collider } from '../core/Physics';
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+/** abilities whose charges can be spent while a previous use is still active */
+const REUSABLE = new Set<AbilityId>(['sensor', 'medstation', 'dome', 'servitor', 'turret', 'huntdrone', 'spotdrone', 'barricade', 'decoy']);
 
 interface Zone {
   kind: 'dome' | 'bubble' | 'station' | 'strike';
@@ -41,7 +43,10 @@ export class Abilities {
     this.tickState(f.ult, dt);
     f.castT = Math.max(0, f.castT - dt * 3);
     // passive ult charge
-    if (f.alive && f.ult.active <= 0) f.ultCharge = Math.min(f.def.ultCost, f.ultCharge + dt * 6);
+    if (f.alive && f.ult.active <= 0) f.ultCharge = Math.min(f.ultCostEff, f.ultCharge + dt * 6);
+    if (f.grappleCd > 0) f.grappleCd -= dt;
+    if (f.meleeCd > 0) f.meleeCd -= dt;
+    if (f.meleeT > 0) f.meleeT -= dt;
     if (!f.alive) return;
     const it = f.intent;
     const blocked = f.empT > 0;
@@ -64,7 +69,7 @@ export class Abilities {
 
   private tryUse(f: Fighter, a: AbilityState, ult: boolean): void {
     if (!ult && a.charges <= 0) return;
-    if (!ult && a.active > 0 && a.duration > 0 && a.id !== 'sensor' && a.id !== 'medstation' && a.id !== 'dome') return;
+    if (!ult && a.active > 0 && a.duration > 0 && !REUSABLE.has(a.id)) return;
     const ok = this.activate(f, a.id);
     if (!ok) return;
     if (ult) {
@@ -102,7 +107,8 @@ export class Abilities {
       }
       case 'frag': {
         const vel = look.clone().multiplyScalar(17).addScaledVector(b.up, 3.5).addScaledVector(b.vel, 0.6);
-        g.combat.spawn('frag', f, eye.clone().addScaledVector(look, 0.5), vel, 'frag');
+        const p = g.combat.spawn('frag', f, eye.clone().addScaledVector(look, 0.5), vel, 'frag');
+        if (f.flags.has('cluster')) p.cluster = true;
         g.sound('grenade_throw', f, 1);
         return true;
       }
@@ -112,12 +118,13 @@ export class Abilities {
         g.sound('streak', f, 1);
         return true;
       }
-      case 'anchor': {
-        const hit = g.world.physics.raycast(eye, look, 45, { team: f.team });
-        if (!hit || hit.t < 2) return false;
-        f.anchor = { target: hit.point.clone(), normal: hit.metal ? hit.normal.clone() : null, t: 1.2 };
-        g.effects.beam(g.muzzleOf(f), hit.point, 0x4db8ff, 0.05, 0.5);
-        g.sound('mag_on', f, 1);
+      case 'decoy': {
+        const fwd = b.forward(new THREE.Vector3());
+        fwd.y = 0;
+        fwd.normalize();
+        if (g.isAuthority) g.summons.spawn('decoy', f, b.pos.clone(), { yaw: Math.atan2(-fwd.x, -fwd.z), vel: fwd.multiplyScalar(2.2) });
+        if (f.flags.has('decoyCloak')) f.cloakT = Math.max(f.cloakT, 2);
+        g.sound('respawn', f, 0.6);
         return true;
       }
       case 'sensor': {
@@ -133,7 +140,8 @@ export class Abilities {
       }
       case 'dome': {
         const pos = b.pos.clone();
-        this.addZone({ kind: 'dome', owner: f.id, team: f.team, pos, radius: 5, t: 0, life: 8, collider: null, mesh: null, hp: 900 });
+        const big = f.flags.has('bigDome');
+        this.addZone({ kind: 'dome', owner: f.id, team: f.team, pos, radius: big ? 6.5 : 5, t: 0, life: 8, collider: null, mesh: null, hp: big ? 1400 : 900 });
         g.sound('shield_up', null, 1, pos);
         return true;
       }
@@ -158,8 +166,8 @@ export class Abilities {
           for (const o of g.fighters) {
             if (!o.alive || g.areEnemies(f, o)) continue;
             if (o.body.pos.distanceTo(pos) > 10) continue;
-            g.heal(o, f, 55, 40);
-            o.oxygen = Math.min(100, o.oxygen + 50);
+            g.heal(o, f, 55, f.flags.has('fullSeal') ? o.maxSuit : 40);
+            o.oxygen = Math.min(100, o.oxygen + (f.flags.has('fullSeal') ? 100 : 50));
           }
         }
         return true;
@@ -178,17 +186,24 @@ export class Abilities {
         return true;
       }
       case 'rocketjump': {
-        const pos = b.pos.clone();
+        // needs something to blast off: floor / wall within reach below the feet
+        const down = b.up.clone().negate();
+        const surf = b.grounded ? null : g.world.physics.raycast(b.pos.clone().addScaledVector(b.up, 0.3), down, 2.6, { forMove: true });
+        if (!b.grounded && !surf) return false;
+        const pos = surf ? surf.point.clone() : b.pos.clone();
         const wish = new THREE.Vector3();
         wish.addScaledVector(b.forward(_v), f.intent.forward).addScaledVector(b.right(_w), f.intent.strafe);
-        if (wish.lengthSq() > 0.01) wish.normalize().multiplyScalar(7);
-        b.impulse(wish.addScaledVector(b.up, 11));
+        if (wish.lengthSq() > 0.01) wish.normalize().multiplyScalar(6.5);
+        if (b.vel.y < 0) b.vel.y *= 0.3;
+        b.impulse(wish.addScaledVector(b.up, 7.4));
         g.combat.explode({ pos, radius: 3.5, damage: 30, owner: f.id, team: f.team, source: 'rocketjump', kind: 'rocketjump', knock: 7, emp: 0, selfDamage: 0, suitMul: 1 });
+        if (f.flags.has('landBlast')) this.landBlast.add(f.id);
         return true;
       }
       case 'mine': {
         const vel = look.clone().multiplyScalar(14).addScaledVector(b.up, 2.5);
-        g.combat.spawn('mine', f, eye.clone().addScaledVector(look, 0.5), vel, 'mine');
+        const mine = g.combat.spawn('mine', f, eye.clone().addScaledVector(look, 0.5), vel, 'mine');
+        if (f.flags.has('empMine')) mine.empMine = true;
         g.sound('grenade_throw', f, 0.8);
         return true;
       }
@@ -217,23 +232,112 @@ export class Abilities {
         return true;
       }
       case 'cloak': {
-        f.cloakT = 5;
+        f.cloakT = f.flags.has('ambush') ? 7 : 5;
+        f.ambushReady = f.flags.has('ambush');
         g.sound('shield_down', f, 0.7);
         return true;
       }
       case 'empnova': {
         const pos = b.center(new THREE.Vector3());
-        g.effects.emp(pos, 22);
+        const R = f.flags.has('wideEmp') ? 28 : 22;
+        g.effects.emp(pos, R);
         g.sound('emp', null, 1, pos);
+        if (g.isAuthority) {
+          for (const s of g.summons.list) if (!s.dead && s.pos.distanceTo(pos) < R && g.summons.hostileTo(s, f)) g.summons.damage(s, 200, f);
+        }
         if (g.isAuthority || f.control === 'local') {
           for (const o of g.fighters) {
             if (!o.alive || !g.areEnemies(f, o)) continue;
             const d = o.body.pos.distanceTo(pos);
-            if (d > 22) continue;
+            if (d > R) continue;
             g.applyEmp(o, 5);
             g.damage({ target: o, attacker: f, amount: 60, source: 'empnova', part: 'body', dir: o.body.pos.clone().sub(pos).normalize(), point: o.body.pos.clone(), suitMul: 1.2 });
           }
         }
+        return true;
+      }
+      case 'lunge': {
+        const fwd = b.viewDir(new THREE.Vector3());
+        fwd.y = Math.max(-0.2, Math.min(0.35, fwd.y));
+        fwd.normalize();
+        b.impulse(fwd.multiplyScalar(14).addScaledVector(b.up, 1.2));
+        f.lungeT = 0.4;
+        this.lungeHits.set(f.id, new Set());
+        g.sound('jet_start', f, 0.9);
+        return true;
+      }
+      case 'deflect': {
+        f.deflectT = f.abilities[1].duration * (f.flags.has('deflectHeal') ? 1.35 : 1);
+        g.sound('shield_up', f, 0.8);
+        return true;
+      }
+      case 'moonblade': {
+        f.moonbladeT = 6;
+        g.sound('streak', f, 1);
+        return true;
+      }
+      case 'servitor': {
+        if (g.isAuthority) g.spawnServitor(f);
+        g.sound('respawn', null, 0.8, b.pos);
+        return true;
+      }
+      case 'turret': {
+        const p = this.groundAhead(f, 2.4);
+        if (!p) return false;
+        if (g.isAuthority) {
+          for (const old of g.summons.byOwner(f.id, 'turret')) g.summons.destroy(old, true);
+          g.summons.spawn('turret', f, p, { yaw: this.yawOf(f), flags: f.flags.has('toughServitors') ? ['longTurret'] : [] });
+        }
+        return true;
+      }
+      case 'barricade': {
+        const p = this.groundAhead(f, 2.6);
+        if (!p) return false;
+        if (g.isAuthority) {
+          const mine = g.summons.byOwner(f.id, 'barricade');
+          if (mine.length >= 2) g.summons.destroy(mine[0], true);
+          g.summons.spawn('barricade', f, p, { yaw: this.yawOf(f) });
+        }
+        return true;
+      }
+      case 'forcefield': {
+        const pos = b.center(new THREE.Vector3());
+        g.effects.shockwave(pos, UP, 12, 0x6fd0ff, 0.8, 0.9);
+        g.sound('shield_up', null, 1, pos);
+        if (g.isAuthority) {
+          for (const o of g.fighters) {
+            if (!o.alive || g.areEnemies(f, o) || o.body.pos.distanceTo(pos) > 12) continue;
+            o.shieldHp = 260;
+            o.shieldT = 7;
+          }
+        }
+        return true;
+      }
+      case 'huntdrone': {
+        if (g.isAuthority) {
+          for (const old of g.summons.byOwner(f.id, 'huntdrone')) g.summons.destroy(old, true);
+          g.summons.spawn('huntdrone', f, eye.clone().addScaledVector(b.up, 0.8), { flags: [...f.flags], vel: look.clone().multiplyScalar(6) });
+        }
+        g.sound('jet_start', f, 0.7);
+        return true;
+      }
+      case 'spotdrone': {
+        if (g.isAuthority) g.summons.spawn('spotdrone', f, eye.clone().addScaledVector(b.up, 0.5), { flags: [...f.flags], vel: look.clone().multiplyScalar(16) });
+        g.sound('jet_start', f, 0.7);
+        return true;
+      }
+      case 'kamikaze': {
+        const n = f.flags.has('bigSwarm') ? 8 : 5;
+        if (g.isAuthority) {
+          const enemies = g.fighters.filter((o) => o.alive && g.areEnemies(f, o)).sort((a, c) => a.body.pos.distanceTo(b.pos) - c.body.pos.distanceTo(b.pos));
+          for (let i = 0; i < n; i++) {
+            const a = (i / n) * Math.PI * 2;
+            const v = new THREE.Vector3(Math.cos(a) * 5, 4, Math.sin(a) * 5).addScaledVector(look, 6);
+            const target = enemies.length ? enemies[i % enemies.length].id : -1;
+            g.summons.spawn('kamikaze', f, eye.clone().addScaledVector(b.up, 0.6), { vel: v, target });
+          }
+        }
+        g.sound('pod_incoming', null, 0.8, b.pos);
         return true;
       }
     }
@@ -246,6 +350,26 @@ export class Abilities {
     const b = f.body;
     if (f.overchargeT > 0) f.overchargeT -= dt;
     if (f.cloakT > 0) f.cloakT -= dt;
+    if (f.shieldT > 0) {
+      f.shieldT -= dt;
+      if (f.shieldT <= 0) f.shieldHp = 0;
+    }
+    if (f.deflectT > 0) f.deflectT -= dt;
+    if (f.moonbladeT > 0) f.moonbladeT -= dt;
+    // lunge: cut through enemies along the path
+    if (f.lungeT > 0) {
+      f.lungeT -= dt;
+      const hits = this.lungeHits.get(f.id);
+      const c = b.center(new THREE.Vector3());
+      for (const o of g.fighters) {
+        if (!o.alive || !g.areEnemies(f, o) || hits?.has(o.id)) continue;
+        if (o.hitbox(1, _v).distanceTo(c) < 2.2) {
+          hits?.add(o.id);
+          g.damage({ target: o, attacker: f, amount: 55 * (f.mods.damage ?? 1), source: 'lunge', part: 'body', dir: b.vel.clone().normalize(), point: _v.clone(), suitMul: 1.1 });
+          g.effects.impact(_v, b.vel.clone().normalize().negate(), 'energy', 0x39e3a8);
+        }
+      }
+    }
     // swarm: fire micro-missiles at enemies near the crosshair
     if (f.swarmT > 0) {
       f.swarmT -= dt;
@@ -282,6 +406,10 @@ export class Abilities {
         g.effects.beam(g.muzzleOf(f), a.target, 0x4db8ff, 0.04, 0.05);
       }
     }
+    if (this.landBlast.has(f.id) && b.grounded && b.vel.y <= 0.5) {
+      this.landBlast.delete(f.id);
+      g.combat.explode({ pos: b.pos.clone(), radius: 4.5, damage: 45, owner: f.id, team: f.team, source: 'rocketjump', kind: 'rocketjump', knock: 8, emp: 0, selfDamage: 0, suitMul: 1 });
+    }
     // magnetic slam: dive, then shockwave on landing
     if (f.slam > 0) {
       f.slam -= dt;
@@ -289,9 +417,32 @@ export class Abilities {
       if (b.grounded && f.slam < 1.3) {
         f.slam = 0;
         const pos = b.pos.clone();
-        g.combat.explode({ pos, radius: 6.5, damage: 55, owner: f.id, team: f.team, source: 'slam', kind: 'slam', knock: 10, emp: 2, selfDamage: 0, suitMul: 1.2 });
+        const heavy = f.flags.has('heavySlam');
+        g.combat.explode({ pos, radius: heavy ? 7.5 : 6.5, damage: 55, owner: f.id, team: f.team, source: 'slam', kind: 'slam', knock: heavy ? 17 : 10, emp: 2, selfDamage: 0, suitMul: 1.2 });
       }
     }
+  }
+
+  private lungeHits = new Map<number, Set<number>>();
+  private landBlast = new Set<number>();
+
+  private yawOf(f: Fighter): number {
+    const fwd = f.body.forward(new THREE.Vector3());
+    return Math.atan2(-fwd.x, -fwd.z);
+  }
+
+  /** a spot on the floor in front of the fighter (for deployables) */
+  private groundAhead(f: Fighter, dist: number): THREE.Vector3 | null {
+    const g = this.game;
+    const fwd = f.body.forward(new THREE.Vector3());
+    fwd.y = 0;
+    if (fwd.lengthSq() < 1e-4) return null;
+    fwd.normalize();
+    const start = f.body.pos.clone().addScaledVector(fwd, dist);
+    start.y += 1.5;
+    const hit = g.world.physics.raycast(start, new THREE.Vector3(0, -1, 0), 4, { forMove: true });
+    if (!hit || hit.normal.y < 0.6) return null;
+    return hit.point.clone();
   }
 
   private pickTarget(f: Fighter, eye: THREE.Vector3, look: THREE.Vector3, cone: number, range: number): Fighter | null {
@@ -402,6 +553,10 @@ export class Abilities {
             if (o.body.pos.distanceTo(z.pos) > z.radius) continue;
             g.heal(o, owner, 28 * dt, 18 * dt, true);
             o.oxygen = Math.min(100, o.oxygen + 20 * dt);
+            if (owner?.flags.has('stationField') && o.shieldHp < 60) {
+              o.shieldHp = Math.min(60, o.shieldHp + 30 * dt);
+              o.shieldT = Math.max(o.shieldT, 1.5);
+            }
           }
         }
       } else if (z.kind === 'bubble') {
@@ -459,6 +614,20 @@ export class Abilities {
       case 'dash':
         this.fxJetBurst(f);
         g.sound('jet_start', null, 1, f.body.pos);
+        break;
+      case 'deflect':
+        f.deflectT = 1.8;
+        break;
+      case 'moonblade':
+        f.moonbladeT = 6;
+        g.sound('streak', null, 1, f.body.pos);
+        break;
+      case 'lunge':
+        g.sound('jet_start', null, 0.9, f.body.pos);
+        break;
+      case 'forcefield':
+        g.effects.shockwave(f.body.center(new THREE.Vector3()), UP, 12, 0x6fd0ff, 0.8, 0.9);
+        g.sound('shield_up', null, 1, f.body.pos);
         break;
     }
   }

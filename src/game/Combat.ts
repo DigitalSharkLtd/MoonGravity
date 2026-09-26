@@ -9,7 +9,7 @@ import { toonMat, glowMat } from '../render/Toon';
 import { LAYER_NO_OUTLINE } from '../render/Pipeline';
 
 export type ProjKind = 'plasma' | 'grenade' | 'frag' | 'foam' | 'missile' | 'nuke' | 'blackhole' | 'mine' | 'sensor';
-export type DamageSource = WeaponId | AbilityId | 'suffocation' | 'fall' | 'self' | 'radiation';
+export type DamageSource = WeaponId | AbilityId | 'suffocation' | 'fall' | 'self' | 'radiation' | 'melee';
 
 export interface Projectile {
   id: number;
@@ -40,6 +40,10 @@ export interface Projectile {
   armed: number; // mines: arm delay
   life2: number; // secondary timer (blackhole active time)
   heal: number;
+  /** build flags: frag splits into bomblets / mine also EMPs */
+  cluster?: boolean;
+  empMine?: boolean;
+  reflected?: boolean;
 }
 
 export interface ExplosionSpec {
@@ -143,7 +147,7 @@ export class Combat {
     if (w.reloadT > 0) {
       w.reloadT -= dt;
       if (w.reloadT <= 0) {
-        const need = def.mag - w.ammo;
+        const need = (w === f.weapon ? f.magSize : def.mag) - w.ammo;
         const take = def.reserve > 0 ? Math.min(need, w.reserve) : need;
         w.ammo += take;
         if (def.reserve > 0) w.reserve -= take;
@@ -152,7 +156,8 @@ export class Combat {
       return;
     }
     if (f.sealT > 0) return; // hands busy patching the suit
-    if ((it.reload && w.ammo < def.mag && (w.reserve > 0 || def.reserve === 0) && def.reload > 0) || (w.ammo <= 0 && w.reserve > 0 && def.reload > 0)) {
+    const mag = w === f.weapon ? f.magSize : def.mag;
+    if ((it.reload && w.ammo < mag && (w.reserve > 0 || def.reserve === 0) && def.reload > 0) || (w.ammo <= 0 && w.reserve > 0 && def.reload > 0)) {
       w.reloadT = def.reload;
       w.charge = 0;
       g.sound('reload', f, 0.8);
@@ -164,14 +169,40 @@ export class Combat {
       else if (it.aim) w.charge = Math.min(1, w.charge + dt / 0.9);
       else w.charge = Math.max(0, w.charge - dt * 2);
     }
+    // burst rifle: remaining rounds of the current burst
+    if (w.burstLeft > 0) {
+      w.burstT -= dt;
+      if (w.burstT <= 0 && w.ammo > 0) {
+        w.burstLeft--;
+        w.burstT = 0.075;
+        w.ammo--;
+        f.stats.shots++;
+        this.fire(f, w);
+      }
+      if (w.ammo <= 0) w.burstLeft = 0;
+      return;
+    }
     const trigger = def.auto ? it.fire : it.firePressed;
     if (!trigger || w.cooldown > 0) return;
+    if (def.kind === 'melee') {
+      w.cooldown = def.interval / (f.mods.fireRate ?? 1) * (f.moonbladeT > 0 ? 0.8 : 1);
+      f.cloakT = 0;
+      f.firingVisual = 0.15;
+      f.stats.shots++;
+      this.meleeSwing(f, def.damage * (f.mods.damage ?? 1) * (f.moonbladeT > 0 ? 1.3 : 1), def.meleeRange, def.meleeArc, 'blade');
+      if (f.moonbladeT > 0) this.moonWave(f);
+      return;
+    }
     if (w.ammo <= 0) {
       if (it.firePressed) g.sound('dryfire', f, 0.6);
       return;
     }
-    w.cooldown = def.interval;
+    w.cooldown = def.interval / (f.mods.fireRate ?? 1) / (f.overchargeT > 0 && def.id !== 'rail' ? 1 : 1);
     w.ammo--;
+    if (def.burstCount > 1) {
+      w.burstLeft = def.burstCount - 1;
+      w.burstT = 0.075;
+    }
     f.cloakT = 0; // firing breaks cloak
     f.firingVisual = 0.15;
     f.stats.shots++;
@@ -212,14 +243,19 @@ export class Combat {
     const muzzle = g.muzzleOf(f);
     g.onFired(f, w);
     w.spread = Math.min(0.06, w.spread + def.recoil * 0.25);
+    let dmgMul = f.mods.damage ?? 1;
+    if (f.ambushReady) {
+      dmgMul *= 1.5;
+      f.ambushReady = false;
+    }
     if (def.kind === 'hitscan') {
       const dir = this.spreadDir(f, w, new THREE.Vector3());
-      let dmg = def.damage;
+      let dmg = def.damage * dmgMul;
       let pierce = def.pierce;
       let wallPierce = false;
       if (def.id === 'rail') {
         const c = f.overchargeT > 0 ? 1 : w.charge;
-        dmg = def.damage * (0.42 + 0.58 * c) * (f.overchargeT > 0 ? 1.25 : 1);
+        dmg = def.damage * dmgMul * (0.42 + 0.58 * c) * (f.overchargeT > 0 ? 1.25 : 1);
         wallPierce = f.overchargeT > 0;
         if (wallPierce) pierce = 3;
         w.charge = 0;
@@ -230,9 +266,16 @@ export class Combat {
       for (let i = 0; i < n; i++) {
         const dir = this.spreadDir(f, w, new THREE.Vector3());
         // spawn from the eye (so shots go where you aim), visuals start at the muzzle
-        const kind: ProjKind = def.id === 'plasma' ? 'plasma' : def.id === 'glauncher' ? 'grenade' : def.id === 'sealer' ? 'foam' : def.id === 'nuke' ? 'nuke' : 'blackhole';
+        const kind: ProjKind = def.id === 'plasma' || def.id === 'riveter' ? 'plasma' : def.id === 'glauncher' ? 'grenade' : def.id === 'sealer' ? 'foam' : def.id === 'nuke' ? 'nuke' : 'blackhole';
         const vel = dir.clone().multiplyScalar(def.speed).addScaledVector(f.body.vel, 0.5);
-        this.spawn(kind, f, eye.clone().addScaledVector(dir, 0.6), vel, def.id, muzzle);
+        const p = this.spawn(kind, f, eye.clone().addScaledVector(dir, 0.6), vel, def.id, muzzle);
+        p.damage *= dmgMul;
+        p.splashDamage *= dmgMul;
+        if (def.id === 'sealer') p.heal *= dmgMul;
+        if (def.id === 'riveter') {
+          p.gravity = def.gravity;
+          p.maxAge = 1.6;
+        }
       }
       if (def.id === 'nuke') f.stats.nukes++;
     } else if (def.kind === 'designator') {
@@ -253,6 +296,12 @@ export class Combat {
     const skip = new Set<number>();
     let end = origin.clone().addScaledVector(dir, maxT);
     let hits = 0;
+    // deployables (turrets, drones, decoys) in front of the world hit
+    const sh = g.summons.rayHit(origin, dir, maxT, f.team, !g.modeInfo.teams, g.ownerId(f));
+    if (sh) {
+      maxT = sh.t;
+      end = sh.point;
+    }
     for (let k = 0; k <= pierce; k++) {
       const h = this.rayFighters(origin, dir, maxT, f, skip);
       if (!h) break;
@@ -260,6 +309,12 @@ export class Combat {
       if (!g.areEnemies(f, h.fighter)) {
         // friendly: shots pass through teammates
         continue;
+      }
+      if (this.deflects(h.fighter, dir)) {
+        this.deflectFx(h.fighter, h.point, dir);
+        end = h.point;
+        hits++;
+        break;
       }
       let dmg = damage;
       if (h.t > def.falloffStart) {
@@ -275,14 +330,20 @@ export class Combat {
       end = h.point;
       if (k >= pierce) break;
     }
-    if (hits === 0 && worldHit) {
-      const surf = worldHit.colliderId >= 100000 ? 'shield' : worldHit.metal ? 'metal' : 'dirt';
+    if (hits === 0 && sh) {
+      g.summons.damage(sh.s, damage * (sh.s.kind === 'decoy' ? 1 : 0.9), f);
+      g.effects.impact(sh.point, dir.clone().negate(), 'metal', def.color);
+      g.sound('impact_metal', null, 0.5, sh.point);
+    } else if (hits === 0 && worldHit) {
+      const summon = (worldHit.collider as { tag?: string } | undefined)?.tag === 'summon' ? g.summons.byCollider(worldHit.collider) : null;
+      if (summon) g.summons.damage(summon, damage, f);
+      const surf = worldHit.colliderId >= 100000 && !summon ? 'shield' : worldHit.metal ? 'metal' : 'dirt';
       g.effects.impact(worldHit.point, worldHit.normal, surf, def.color);
       if (surf === 'shield') g.sound('shield_hit', null, 0.7, worldHit.point);
       else g.sound(surf === 'metal' ? 'impact_metal' : 'impact_dirt', null, 0.5, worldHit.point);
     }
     if (hits > 0 && pierce > 0 && worldHit) end = worldHit.point;
-    else if (hits === 0) end = worldHit ? worldHit.point : end;
+    else if (hits === 0 && !sh) end = worldHit ? worldHit.point : end;
     // tracer visuals
     if (weapon === 'rail') {
       g.effects.beam(muzzle, end, def.color, 0.12, 0.5);
@@ -486,10 +547,40 @@ export class Combat {
         const hit = g.world.physics.raycast(p.pos, _d, len + p.radius, { team: p.team });
         // fighter collision
         const fh = p.kind === 'mine' || p.kind === 'sensor' ? null : this.rayFighters(p.pos, _d, hit ? hit.t : len + p.radius, owner, undefined);
+        if (fh && owner && p.kind !== 'foam' && g.areEnemies(owner, fh.fighter) && this.deflects(fh.fighter, _d)) {
+          // Blade's deflect: send the projectile back at its owner
+          this.deflectFx(fh.fighter, fh.point, _d);
+          if (!p.ghost) {
+            const f2 = fh.fighter;
+            const back = f2.body.viewDir(new THREE.Vector3());
+            p.vel.copy(back).multiplyScalar(Math.max(20, p.vel.length()));
+            p.pos.copy(fh.point).addScaledVector(back, 0.8);
+            p.owner = f2.id;
+            p.team = f2.team;
+            p.reflected = true;
+            p.target = -1;
+          }
+          continue;
+        }
         if (fh && (p.kind !== 'foam' || true)) {
           if (!p.ghost) this.projectileHitFighter(p, fh, owner);
           else this.retire(p);
           continue;
+        }
+        // deployables
+        if (p.kind !== 'mine' && p.kind !== 'sensor' && p.kind !== 'foam') {
+          const sh = g.summons.rayHit(p.pos, _d, hit ? hit.t : len + p.radius, p.team, !g.modeInfo.teams, owner ? g.ownerId(owner) : p.owner);
+          if (sh) {
+            if (!p.ghost) {
+              if (p.damage > 0) g.summons.damage(sh.s, p.damage, owner);
+              this.detonateAt(p, sh.point, _d.clone().negate(), false);
+            } else this.retire(p);
+            continue;
+          }
+        }
+        if (hit && !p.ghost && (hit.collider as { tag?: string } | undefined)?.tag === 'summon' && p.damage > 0) {
+          const s2 = g.summons.byCollider(hit.collider);
+          if (s2) g.summons.damage(s2, p.damage, owner);
         }
         if (hit) {
           p.pos.copy(hit.point).addScaledVector(hit.normal, p.radius);
@@ -698,6 +789,20 @@ export class Combat {
       return;
     }
     const kindMap: Record<ProjKind, ExplosionSpec['kind']> = { plasma: 'small', foam: 'foam', grenade: 'grenade', frag: 'frag', missile: 'missile', nuke: 'nuke', blackhole: 'blackhole', mine: 'mine', sensor: 'small' };
+    if (p.cluster) {
+      const owner = g.fighterById(p.owner);
+      if (owner) {
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * Math.PI * 2 + Math.random();
+          const v = new THREE.Vector3(Math.cos(a) * 4.5, 5 + Math.random() * 2, Math.sin(a) * 4.5);
+          const b = this.spawn('frag', owner, pos.clone().addScaledVector(normal, 0.3), v, p.source);
+          b.fuse = 0.7 + Math.random() * 0.3;
+          b.splash = 3;
+          b.splashDamage = 38;
+          b.mesh?.scale.setScalar(0.7);
+        }
+      }
+    }
     this.explode({
       pos: pos.clone(),
       radius: p.splash,
@@ -707,7 +812,7 @@ export class Combat {
       source: p.source,
       kind: kindMap[p.kind],
       knock: p.kind === 'nuke' ? 30 : p.kind === 'blackhole' ? 8 : 9,
-      emp: p.kind === 'nuke' ? 4 : 0,
+      emp: p.kind === 'nuke' ? 4 : p.empMine ? 2.5 : 0,
       selfDamage: p.kind === 'nuke' ? 1 : 0.35,
       suitMul: p.kind === 'nuke' ? 2 : 1.3,
     });
@@ -776,6 +881,7 @@ export class Combat {
     const g = this.game;
     this.explosionFx(e.pos, e.radius, e.kind);
     const owner = g.fighterById(e.owner);
+    if (g.isAuthority && e.damage > 0 && !e.heal) g.summons.explosion(e.pos, e.radius, e.damage * (e.kind === 'nuke' ? 2 : 1), owner, e.team);
     for (const f of g.fighters) {
       if (!f.alive) continue;
       f.hitbox(1, _v);
@@ -802,7 +908,7 @@ export class Combat {
         if (amt > 0.5 && owner) g.damage({ target: f, attacker: owner, amount: amt, source: e.source, part: 'body', dir: _d.clone(), point: _v.clone(), suitMul: e.suitMul });
         else if (amt > 0.5 && !owner) g.damage({ target: f, attacker: null, amount: amt, source: e.source, part: 'body', dir: _d.clone(), point: _v.clone(), suitMul: e.suitMul });
       }
-      if ((enemy || isSelf) && e.knock > 0 && f.control !== 'remote') {
+      if ((enemy || (isSelf && e.kind !== 'rocketjump')) && e.knock > 0 && f.control !== 'remote') {
         const push = _d.clone().multiplyScalar(e.knock * k);
         push.y += e.knock * 0.35 * k;
         f.body.impulse(push);
@@ -812,6 +918,127 @@ export class Combat {
         if (f.control !== 'remote') f.body.emp(e.emp * k);
       }
     }
+  }
+
+  // ------------------------------------------------------------------ melee
+
+  /** true if the target's deflect is up and the shot comes from its front */
+  deflects(t: Fighter, dir: THREE.Vector3): boolean {
+    if (t.deflectT <= 0) return false;
+    const fwd = t.body.viewDir(_o);
+    return fwd.dot(dir) < -0.2;
+  }
+
+  private deflectFx(t: Fighter, point: THREE.Vector3, dir: THREE.Vector3): void {
+    const g = this.game;
+    g.effects.impact(point, dir.clone().negate(), 'shield', 0x39e3a8);
+    g.sound('shield_hit', null, 0.8, point);
+    if (t.flags.has('deflectHeal') && g.isAuthority) g.heal(t, t, 6, 3, true);
+  }
+
+  /**
+   * Cone cleave (Blade's katana and everyone's quick melee). Hits every enemy fighter and
+   * deployable inside the arc; knocks them back a little.
+   */
+  meleeSwing(f: Fighter, damage: number, range: number, arc: number, source: DamageSource): number {
+    const g = this.game;
+    const eye = f.eye(new THREE.Vector3());
+    const look = f.body.viewDir(new THREE.Vector3());
+    f.meleeT = 0.32;
+    f.swingSide = -f.swingSide;
+    f.model?.swing(f.swingSide);
+    if (f === g.local) g.viewmodelSwing(f.swingSide);
+    g.sound('melee', f, source === 'blade' ? 1 : 0.8);
+    if (source === 'blade') g.sound('arc', f, 0.25);
+    const cosArc = Math.cos(arc);
+    let n = 0;
+    for (const o of g.fighters) {
+      if (!o.alive || !g.areEnemies(f, o)) continue;
+      let best = -1;
+      let part: 'head' | 'body' | 'legs' = 'body';
+      for (let i = 0; i < HITBOXES.length; i++) {
+        o.hitbox(i, _v);
+        _d.copy(_v).sub(eye);
+        const d = _d.length() - o.hitRadius(i);
+        if (d > range) continue;
+        const c = _d.normalize().dot(look);
+        if (c < cosArc && d > 0.6) continue;
+        if (c > best) {
+          best = c;
+          part = HITBOXES[i].part;
+        }
+      }
+      if (best < -0.5) continue;
+      o.hitbox(1, _v);
+      // walls block swings
+      _d.copy(_v).sub(eye);
+      const dl = _d.length();
+      if (dl > 0.4 && g.world.physics.raycast(eye, _d.divideScalar(dl), dl - 0.3, { team: f.team })) continue;
+      if (this.deflects(o, _d) && source !== 'melee') {
+        this.deflectFx(o, _v, _d);
+        continue;
+      }
+      const dmg = damage * (part === 'head' ? 1.2 : 1);
+      g.damage({ target: o, attacker: f, amount: dmg, source, part, dir: _d.clone(), point: _v.clone(), suitMul: 1.2 });
+      if (f.flags.has('lifesteal')) g.heal(f, f, dmg * 0.25, 0, true);
+      g.effects.impact(_v, _d.clone().negate(), 'energy', source === 'blade' ? 0x39e3a8 : 0xffffff);
+      if (o.control !== 'remote') o.body.impulse(_d.clone().multiplyScalar(source === 'melee' ? 5 : 3).addScaledVector(o.body.up, 1.5));
+      n++;
+    }
+    // deployables
+    for (const s of g.summons.list) {
+      if (s.dead || !g.summons.hostileTo(s, f)) continue;
+      g.summons.center(s, _v);
+      _d.copy(_v).sub(eye);
+      const d = _d.length() - s.radius;
+      if (d > range || _d.normalize().dot(look) < cosArc) continue;
+      g.summons.damage(s, damage, f);
+      g.effects.impact(_v, _d.clone().negate(), 'metal', 0xffffff);
+      n++;
+    }
+    if (n > 0) {
+      f.stats.hits++;
+      g.sound('impact_metal', null, 0.6, eye);
+    } else {
+      // swing trail in the air
+      g.effects.add.spawn({ pos: eye.clone().addScaledVector(look, 1.4), life: 0.18, size0: 1.2, size1: 0.4, color0: source === 'blade' ? 0x39e3a8 : 0xffffff, alpha0: 0.35, sprite: 4 });
+    }
+    return n;
+  }
+
+  /** Quick melee (V) — universal, short cooldown. */
+  quickMelee(f: Fighter): void {
+    if (f.meleeCd > 0 || f.sealT > 0) return;
+    f.meleeCd = 0.9;
+    f.cloakT = 0;
+    if (f.hero === 'blade') {
+      this.meleeSwing(f, 58 * (f.mods.damage ?? 1), 3.2, 0.9, 'blade');
+      return;
+    }
+    this.meleeSwing(f, 40 * (f.mods.damage ?? 1), 2.4, 0.7, 'melee');
+  }
+
+  /** Moonblade ult: each swing also launches an energy crescent. */
+  private moonWave(f: Fighter): void {
+    const g = this.game;
+    const eye = f.eye(new THREE.Vector3());
+    const look = f.body.viewDir(new THREE.Vector3());
+    const range = 16;
+    const hit = g.world.physics.raycast(eye, look, range, { team: f.team });
+    const maxT = hit ? hit.t : range;
+    const skip = new Set<number>();
+    for (let k = 0; k < 4; k++) {
+      const h = this.rayFighters(eye, look, maxT, f, skip);
+      if (!h) break;
+      skip.add(h.fighter.id);
+      if (!g.areEnemies(f, h.fighter)) continue;
+      g.damage({ target: h.fighter, attacker: f, amount: 55 * (f.mods.damage ?? 1), source: 'moonblade', part: 'body', dir: look.clone(), point: h.point, suitMul: 1.3 });
+    }
+    const end = eye.clone().addScaledVector(look, maxT);
+    const from = g.muzzleOf(f);
+    g.effects.beam(from, end, 0x39e3a8, 0.35, 0.25);
+    g.effects.beam(from, end, 0xd8fff0, 0.08, 0.2);
+    for (let i = 0; i < 10; i++) g.effects.add.spawn({ pos: from.clone().lerp(end, i / 10), life: 0.3, size0: 0.9, size1: 0.1, color0: 0x39e3a8, alpha0: 0.6, sprite: 4 });
   }
 
   clear(): void {

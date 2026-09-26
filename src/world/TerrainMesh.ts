@@ -3,6 +3,7 @@ import { TerrainData } from './TerrainGen';
 import { MapDef } from './MapDefs';
 import { registerLit, stylize } from '../render/Materials';
 import { regolithSet } from '../render/TextureGen';
+import type { BakeLight } from './Builder';
 
 const CHUNK = 64; // cells per chunk side
 
@@ -107,6 +108,8 @@ export class TerrainMesh {
           `#include <common>
           attribute float aOre;
           attribute float aTint;
+          attribute vec3 aBake;
+          varying vec3 vBake;
           varying vec3 vWorldPos;
           varying float vOre;
           varying float vTintShift;`,
@@ -116,10 +119,12 @@ export class TerrainMesh {
           `#include <begin_vertex>
           vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
           vOre = aOre;
+          vBake = aBake;
           vTintShift = aTint;`,
         );
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\n' + TERRAIN_PARS)
+        .replace('#include <common>', '#include <common>\nvarying vec3 vBake;\n' + TERRAIN_PARS)
+        .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse += vBake * diffuseColor.rgb;\n#include <aomap_fragment>')
         .replace(
           '#include <color_fragment>',
           `#include <color_fragment>
@@ -179,7 +184,7 @@ export class TerrainMesh {
           }`,
         );
     };
-    mat.customProgramCacheKey = () => 'terrain' + (detail ? 'D' : '');
+    mat.customProgramCacheKey = () => 'terrainB' + (detail ? 'D' : '');
     stylize(mat, { rim: 0.1, wrap: 0.12, rimColor: 0xb8c8ff });
     registerLit(mat);
   }
@@ -210,6 +215,7 @@ export class TerrainMesh {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('aOre', new THREE.BufferAttribute(oreA, 1));
     geo.setAttribute('aTint', new THREE.BufferAttribute(tintA, 1));
+    geo.setAttribute('aBake', new THREE.BufferAttribute(new Float32Array(cw * ch * 3), 3));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
     geo.computeBoundingBox();
@@ -368,6 +374,7 @@ export class TerrainMesh {
     geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     geo.setAttribute('aOre', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3), 1));
     geo.setAttribute('aTint', new THREE.Float32BufferAttribute(new Float32Array(pos.length / 3), 1));
+    geo.setAttribute('aBake', new THREE.Float32BufferAttribute(new Float32Array(pos.length), 3));
     geo.setIndex(idx);
     geo.computeVertexNormals();
     const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(def.tint), vertexColors: true, roughness: 0.97, metalness: 0 });
@@ -380,5 +387,84 @@ export class TerrainMesh {
 
   update(t: number): void {
     this.uniforms.uTime.value = t;
+  }
+
+  /**
+   * Bake static structure lights (door spills, lamp posts, catwalk downlights) into terrain vertices
+   * so warm pools of light sit on the regolith without any real-time lights.
+   */
+  bakeLights(lights: BakeLight[], lamps: THREE.Vector3[] = []): void {
+    const hf = this.data.hf;
+    const warm = new THREE.Color(0xffd8a0);
+    const all: BakeLight[] = lights.concat(lamps.map((p) => ({ pos: p, color: warm, intensity: 5, radius: 11 })));
+    if (!all.length) return;
+    const acc = new Float32Array(hf.nx * hf.nz * 3);
+    let any = false;
+    for (const L of all) {
+      const r = L.radius;
+      const i0 = Math.max(0, Math.floor((L.pos.x - r - hf.x0) / hf.cell));
+      const i1 = Math.min(hf.nx - 1, Math.ceil((L.pos.x + r - hf.x0) / hf.cell));
+      const j0 = Math.max(0, Math.floor((L.pos.z - r - hf.z0) / hf.cell));
+      const j1 = Math.min(hf.nz - 1, Math.ceil((L.pos.z + r - hf.z0) / hf.cell));
+      const r2 = r * r;
+      const bb = L.bounds;
+      for (let j = j0; j <= j1; j++) {
+        for (let i = i0; i <= i1; i++) {
+          const x = hf.x0 + i * hf.cell;
+          const z = hf.z0 + j * hf.cell;
+          const k = j * hf.nx + i;
+          const y = hf.data[k];
+          if (bb && (x < bb.min.x || x > bb.max.x || y < bb.min.y || y > bb.max.y || z < bb.min.z || z > bb.max.z)) continue;
+          const dx = L.pos.x - x;
+          const dy = L.pos.y - y;
+          const dz = L.pos.z - z;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 >= r2) continue;
+          const d = Math.sqrt(d2) || 1e-3;
+          let nx = hf.get(i - 1, j) - hf.get(i + 1, j);
+          let ny = 2 * hf.cell;
+          let nz = hf.get(i, j - 1) - hf.get(i, j + 1);
+          const nl = Math.hypot(nx, ny, nz);
+          nx /= nl;
+          ny /= nl;
+          nz /= nl;
+          const wrap = ((nx * dx + ny * dy + nz * dz) / d + 0.3) / 1.3;
+          if (wrap <= 0) continue;
+          const q = d2 / r2;
+          let win = 1 - q * q;
+          win *= win;
+          let att = (L.intensity * win) / (d2 + 1);
+          if (L.dir) {
+            const c = -(dx * L.dir.x + dy * L.dir.y + dz * L.dir.z) / d;
+            const cone = L.cone ?? 0.5;
+            const t = Math.min(1, Math.max(0, (c - cone) / Math.max(0.05, (1 - cone) * 0.6)));
+            att *= t * t * (3 - 2 * t);
+          }
+          const e = att * Math.min(1, wrap);
+          if (e <= 1e-4) continue;
+          acc[k * 3] += L.color.r * e;
+          acc[k * 3 + 1] += L.color.g * e;
+          acc[k * 3 + 2] += L.color.b * e;
+          any = true;
+        }
+      }
+    }
+    if (!any) return;
+    for (const c of this.chunks) {
+      const attr = c.mesh.geometry.getAttribute('aBake') as THREE.BufferAttribute;
+      const arr = attr.array as Float32Array;
+      const cw = c.i1 - c.i0 + 1;
+      for (let j = c.j0; j <= c.j1; j++) {
+        for (let i = c.i0; i <= c.i1; i++) {
+          const v = (j - c.j0) * cw + (i - c.i0);
+          const k = j * hf.nx + i;
+          for (let ch = 0; ch < 3; ch++) {
+            const a = acc[k * 3 + ch];
+            arr[v * 3 + ch] = a / (1 + a * 0.25);
+          }
+        }
+      }
+      attr.needsUpdate = true;
+    }
   }
 }

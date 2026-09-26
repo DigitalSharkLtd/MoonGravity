@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Body, MoveInput, emptyInput } from '../entities/Body';
 import { HeroModel } from '../entities/HeroModel';
 import { PhysicsWorld } from '../core/Physics';
-import { HEROES, HeroDef, HeroId, WeaponId, AbilityId } from './Types';
+import { HEROES, HeroDef, HeroId, WeaponId, AbilityId, BuildMods } from './Types';
 import { WEAPONS, WeaponDef } from '../weapons/WeaponDefs';
 
 export interface Intent extends MoveInput {
@@ -16,10 +16,12 @@ export interface Intent extends MoveInput {
   slot: number; // -1 none, 0 hero weapon, 1 super weapon
   sealant: boolean;
   toggleMag: boolean;
+  grapple: boolean; // pressed
+  melee: boolean; // pressed
 }
 
 export function emptyIntent(): Intent {
-  return { ...emptyInput(), fire: false, firePressed: false, aim: false, reload: false, ability1: false, ability2: false, ultimate: false, slot: -1, sealant: false, toggleMag: false };
+  return { ...emptyInput(), fire: false, firePressed: false, aim: false, reload: false, ability1: false, ability2: false, ultimate: false, slot: -1, sealant: false, toggleMag: false, grapple: false, melee: false };
 }
 
 export interface WeaponState {
@@ -32,11 +34,13 @@ export interface WeaponState {
   charge: number; // 0..1 railgun charge
   spread: number; // current bloom
   burst: number; // alternating barrel for twin weapons
+  burstLeft: number; // burst rifle: rounds left in the current burst
+  burstT: number;
 }
 
 export function makeWeapon(id: WeaponId): WeaponState {
   const def = WEAPONS[id];
-  return { id, def, ammo: def.mag, reserve: def.reserve, cooldown: 0, reloadT: 0, charge: 0, spread: 0, burst: 0 };
+  return { id, def, ammo: def.mag, reserve: def.reserve, cooldown: 0, reloadT: 0, charge: 0, spread: 0, burst: 0, burstLeft: 0, burstT: 0 };
 }
 
 export interface AbilityState {
@@ -145,6 +149,26 @@ export class Fighter {
   slam = 0; // >0 while slamming down
   lastWallTime = -99;
   lastStepFoot = 0;
+  // expanded kit
+  shieldHp = 0; // force-field HP on top of health
+  shieldT = 0;
+  deflectT = 0;
+  lungeT = 0;
+  moonbladeT = 0;
+  grappleCd = 0;
+  meleeCd = 0;
+  meleeT = 0; // swing animation
+  swingSide = 1;
+  ambushReady = false;
+  /** servitor summons: owning fighter id (-1 = not a summon) */
+  summonOf = -1;
+  summonLife = 0;
+  buildId = '';
+  mods: BuildMods = {};
+  flags = new Set<string>();
+  /** grapple rope anchor for rendering (local sim uses body.grapple; remotes get it via net) */
+  rope: THREE.Vector3 | null = null;
+  ropeT = 0;
 
   constructor(id: number, name: string, team: number, hero: HeroId, control: Control, world: PhysicsWorld) {
     this.id = id;
@@ -156,18 +180,49 @@ export class Fighter {
     this.setHero(hero);
   }
 
-  setHero(hero: HeroId): void {
+  setHero(hero: HeroId, def?: HeroDef): void {
     this.hero = hero;
-    this.def = HEROES[hero];
+    this.def = def ?? HEROES[hero];
     this.maxHealth = this.def.health;
     this.maxSuit = this.def.suit;
     this.weapon = makeWeapon(this.def.weapon);
     const mk = (a: HeroDef['ability1']): AbilityState => ({ id: a.id, cooldown: 0, maxCooldown: a.cooldown, charges: a.charges, maxCharges: a.charges, active: 0, duration: a.duration });
     this.abilities = [mk(this.def.ability1), mk(this.def.ability2)];
     this.ult = mk(this.def.ultimate);
+    this.applyBuild(this.buildId);
     this.body.standHeight = this.hero === 'reactor' ? 2.02 : 1.85;
     this.body.height = this.body.standHeight;
     this.body.radius = this.hero === 'reactor' ? 0.5 : 0.42;
+  }
+
+  /** Apply a build (talent path) — multipliers & swaps. */
+  applyBuild(id: string): void {
+    const b = this.def.builds?.find((x) => x.id === id) ?? this.def.builds?.[0];
+    this.buildId = b?.id ?? '';
+    const m = (this.mods = b?.mods ?? {});
+    this.flags = new Set(m.flags ?? []);
+    this.maxHealth = Math.round(this.def.health * (m.health ?? 1));
+    this.maxSuit = Math.round(this.def.suit * (m.suit ?? 1));
+    const a1 = this.abilities[0];
+    const a2 = this.abilities[1];
+    if (a1) {
+      a1.id = m.swap1 ?? this.def.ability1.id;
+      a1.maxCooldown = this.def.ability1.cooldown * (m.cd1 ?? 1);
+      a1.maxCharges = this.def.ability1.charges + (m.swap1 === 'barricade' ? 1 : 0) + (m.charges1 ?? 0);
+      a1.duration = m.swap1 === 'barricade' ? 0 : this.def.ability1.duration;
+      a1.charges = Math.min(a1.charges, a1.maxCharges);
+    }
+    if (a2) {
+      a2.id = m.swap2 ?? this.def.ability2.id;
+      a2.maxCooldown = this.def.ability2.cooldown * (m.cd2 ?? 1);
+      a2.maxCharges = this.def.ability2.charges + (m.charges2 ?? 0);
+      a2.duration = m.swap2 === 'huntdrone' ? 0 : this.def.ability2.duration;
+      a2.charges = Math.min(a2.charges, a2.maxCharges);
+    }
+  }
+
+  get ultCostEff(): number {
+    return this.def.ultCost * (this.mods.ultCost ?? 1);
   }
 
   /** Reset vitals & gear at spawn. */
@@ -179,8 +234,14 @@ export class Fighter {
     this.breached = false;
     this.suffocating = false;
     this.weapon = makeWeapon(this.def.weapon);
+    if (this.mods.mag && this.weapon.def.mag < 900) {
+      this.weapon.ammo = Math.round(this.weapon.def.mag * this.mods.mag);
+    }
     this.superWeapon = null;
     this.slot = 0;
+    this.shieldHp = this.shieldT = this.deflectT = this.lungeT = this.moonbladeT = 0;
+    this.grappleCd = this.meleeCd = this.meleeT = 0;
+    this.ambushReady = false;
     this.sealants = this.def.sealants;
     this.sealT = -1;
     this.empT = this.cloakT = this.invulnT = this.overchargeT = this.swarmT = this.revealedT = this.slowT = 0;
@@ -212,7 +273,11 @@ export class Fighter {
   }
 
   get ultReady(): boolean {
-    return this.ultCharge >= this.def.ultCost;
+    return this.ultCharge >= this.ultCostEff;
+  }
+
+  get magSize(): number {
+    return this.weapon.def.mag < 900 ? Math.round(this.weapon.def.mag * (this.mods.mag ?? 1)) : this.weapon.def.mag;
   }
 
   eye(out: THREE.Vector3): THREE.Vector3 {
@@ -221,8 +286,14 @@ export class Fighter {
 
   /** world-space hitbox center */
   hitbox(i: number, out: THREE.Vector3): THREE.Vector3 {
-    const s = this.body.height / this.body.standHeight;
-    return out.copy(this.body.pos).addScaledVector(this.body.up, HITBOXES[i].h * s * (this.hero === 'reactor' ? 1.1 : 1));
+    const b = this.body;
+    if (b.stance === 'prone') {
+      // lying along the facing direction: head forward, legs back, all near the ground
+      const f = b.forward(out).multiplyScalar(i === 0 ? 0.75 : i === 1 ? 0 : -0.75);
+      return f.add(b.pos).addScaledVector(b.up, 0.32);
+    }
+    const s = b.height / b.standHeight;
+    return out.copy(b.pos).addScaledVector(b.up, HITBOXES[i].h * s * (this.hero === 'reactor' ? 1.1 : 1));
   }
   hitRadius(i: number): number {
     return HITBOXES[i].r * (this.hero === 'reactor' ? 1.15 : 1);

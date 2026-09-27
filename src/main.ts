@@ -9,6 +9,7 @@ import { Game } from './game/Game';
 import { offlineBridge } from './game/NetBridge';
 import { HeroModel } from './entities/HeroModel';
 import { warmMatchShaders } from './render/Warmup';
+import { enterFullscreen, toggleFullscreen } from './ui/fullscreen';
 import { MODES, ModeId, HeroId, Settings, Profile, MatchResult, HERO_ORDER, MapId } from './game/Types';
 import { MenuSystem, MenuCallbacks } from './ui/Menu';
 import { Hud } from './ui/Hud';
@@ -324,6 +325,7 @@ function resume(): void {
   if (!game) return;
   game.paused = false;
   menu.hide();
+  if (settings.fullscreen) enterFullscreen();
   input.lock();
 }
 
@@ -331,7 +333,17 @@ input.onLockChange = (locked) => {
   if (!locked && state === 'match' && !ended && game && !game.heroSelectOpen) pause();
 };
 canvas.addEventListener('click', () => {
-  if (state === 'match' && !input.locked && !menu.visible) input.lock();
+  if (state === 'match' && !input.locked && !menu.visible) {
+    if (settings.fullscreen) enterFullscreen(); // same click gesture: full screen + mouse lock
+    input.lock();
+  }
+});
+// Alt+Enter: toggle full screen anywhere (menu or match)
+addEventListener('keydown', (e) => {
+  if (e.code === 'Enter' && e.altKey) {
+    e.preventDefault();
+    toggleFullscreen();
+  }
 });
 
 function openHeroSelect(): void {

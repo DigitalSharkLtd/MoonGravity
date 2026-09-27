@@ -108,6 +108,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     adsSensitivity: num(s.adsSensitivity, d.adsSensitivity, 0.2, 1.5),
     invertY: bool(s.invertY, d.invertY),
     toggleAim: bool(s.toggleAim, d.toggleAim),
+    fullscreen: bool(s.fullscreen, d.fullscreen),
     toggleCrouch: bool(s.toggleCrouch, d.toggleCrouch),
     keys,
     botDifficulty: oneOf(s.botDifficulty, ['easy', 'normal', 'hard', 'veteran'] as const, d.botDifficulty),

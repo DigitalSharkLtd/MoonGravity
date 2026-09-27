@@ -1,4 +1,5 @@
 import { DEFAULT_KEYS, DEFAULT_SETTINGS, type Action, type Settings } from '../../game/Types';
+import { enterFullscreen, exitFullscreen } from '../fullscreen';
 import { mapArtSvg } from '../art';
 import { div, h, ico, span } from '../dom';
 import { actionName, botName, keyLabel, t } from '../i18n';
@@ -160,6 +161,15 @@ export function buildSettings(ctx: MenuCtx): ScreenInst {
         row('set.renderScale', 'setd.renderScale', slider({ min: 0.5, max: 1.5, step: 0.05, value: s.renderScale, fmt: pctFmt, onInput: (v) => commit({ renderScale: v }) }), '', 'heavy'),
         row('set.fov', 'setd.fov', slider({ min: 60, max: 110, step: 1, value: s.fov, fmt: (v) => v + '°', onInput: (v) => commit({ fov: v }) })),
         row('set.showFps', 'setd.showFps', toggle(s.showFps, (v) => commit({ showFps: v }))),
+        row(
+          'set.fullscreen',
+          'setd.fullscreen',
+          toggle(s.fullscreen, (v) => {
+            commit({ fullscreen: v });
+            if (v) enterFullscreen();
+            else exitFullscreen();
+          }),
+        ),
       ),
       group(
         'settings.group.heavy',

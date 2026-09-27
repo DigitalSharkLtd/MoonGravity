@@ -1,4 +1,5 @@
 import { HERO_ORDER, HEROES, levelFromXp, MODES, type HeroId, type MapId, type MatchResult, type ModeId, type Profile, type ScoreRow } from '../../game/Types';
+import { fullscreenSupported, isFullscreen, toggleFullscreen } from '../fullscreen';
 import { mapArtSvg } from '../art';
 import { clear, div, fmtNum, fmtTime, h, ico, span } from '../dom';
 import { abilityDesc, abilityName, bi, getLang, heroName, heroTagline, keyLabel, mapName, modeName, ribbonDesc, ribbonName, t, tip, tipCount, weaponName } from '../i18n';
@@ -383,6 +384,12 @@ export function buildPause(ctx: MenuCtx, info: PauseInfo, act: { resume(): void;
   const resume = btn(t('pause.resume'), () => act.resume(), { kind: 'primary', big: true, icon: UI.play, kbd: 'Esc' });
   resume.setAttribute('data-autofocus', '');
   const settings = btn(t('pause.settings'), () => ctx.go('settings'), { kind: 'ghost', icon: UI.gear, big: true });
+  const fs = fullscreenSupported()
+    ? btn(t(isFullscreen() ? 'pause.windowed' : 'pause.fullscreen'), () => {
+        toggleFullscreen();
+        ctx.go('pause');
+      }, { kind: 'ghost', icon: UI.monitor, big: true })
+    : null;
   const leaveWrap = div('mg-pause-leave');
   const renderLeave = (confirming: boolean) => {
     clear(leaveWrap);
@@ -403,7 +410,7 @@ export function buildPause(ctx: MenuCtx, info: PauseInfo, act: { resume(): void;
   const side = div(
     'mg-pause-side',
     div('mg-pause-h', div('mg-pause-k', ico(MODE_ICON[m]), span('', `${modeName(m)} · ${mapName(MODES[m].map)}`)), h('h1', null, t('pause.title'))),
-    h('nav', { class: 'mg-pause-nav' }, resume, settings, leaveWrap),
+    h('nav', { class: 'mg-pause-nav' }, resume, settings, fs, leaveWrap),
     div('mg-pause-info', div('mg-pause-row', ico(UI.users), span('', t('pause.players')), span('mg-pause-num', `${info.players}/${info.capacity}`), pips), info.isHost ? div('mg-pause-host', ico(UI.crown), span('', t('pause.host'))) : null),
   );
   el.appendChild(side);

@@ -173,6 +173,8 @@ export interface Settings {
   adsSensitivity: number; // multiplier 0.2..1.5
   invertY: boolean;
   toggleAim: boolean;
+  /** go full screen when clicking into a match (Alt+Enter toggles any time) */
+  fullscreen: boolean;
   toggleCrouch: boolean;
   keys: Record<Action, string>;
   // gameplay / HUD
@@ -212,6 +214,7 @@ export const DEFAULT_SETTINGS: Settings = {
   adsSensitivity: 0.7,
   invertY: false,
   toggleAim: false,
+  fullscreen: true,
   toggleCrouch: false,
   keys: { ...DEFAULT_KEYS },
   botDifficulty: 'normal',

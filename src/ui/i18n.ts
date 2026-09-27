@@ -1233,7 +1233,7 @@ const ABILITY_COPY: Record<AbilityId, { name: Bi; desc: Bi }> = {
   },
   deflect: {
     name: { ru: 'Отражение', en: 'Deflect' },
-    desc: { ru: 'Клинок отбивает летящие спереди снаряды обратно и блокирует пули.', en: 'Your blade sends frontal projectiles straight back and blocks gunfire.' },
+    desc: { ru: 'Клинок отбивает снаряды обратно и блокирует пули — но только спереди.', en: 'Your blade bats projectiles straight back and blocks gunfire from the front.' },
   },
   moonblade: {
     name: { ru: 'Лунный клинок', en: 'Moonblade' },
@@ -1285,7 +1285,7 @@ const ABILITY_COPY: Record<AbilityId, { name: Bi; desc: Bi }> = {
   },
   slam: {
     name: { ru: 'Магнитный удар', en: 'Mag Slam' },
-    desc: { ru: 'Прыжок и удар о грунт: волна отбрасывает врагов и срывает их со стен.', en: 'Leap and slam down: the shockwave hurls enemies back and rips them off walls.' },
+    desc: { ru: 'Прыжок и удар о грунт: ударная волна отбрасывает врагов и срывает их со стен.', en: 'Leap and slam down: the shockwave hurls enemies back and rips them off walls.' },
   },
   blackhole: {
     name: { ru: 'Сингулярность', en: 'Singularity' },
@@ -1293,7 +1293,7 @@ const ABILITY_COPY: Record<AbilityId, { name: Bi; desc: Bi }> = {
   },
   o2burst: {
     name: { ru: 'Кислородный выброс', en: 'O₂ Burst' },
-    desc: { ru: 'Волна вокруг вас лечит союзников, восполняет им кислород и латает скафандры.', en: 'A pulse that heals you and nearby allies, refills oxygen and patches suits.' },
+    desc: { ru: 'Волна лечит вас и союзников рядом, восполняет кислород и латает скафандры.', en: 'A pulse that heals you and nearby allies, refills oxygen and patches suits.' },
   },
   medstation: {
     name: { ru: 'Медстанция', en: 'Med Station' },
@@ -1373,7 +1373,7 @@ const WEAPON_COPY: Record<WeaponId, { name: Bi; short: Bi; desc: Bi }> = {
   blade: {
     name: { ru: 'Плазменная катана «Серп»', en: 'Sickle Plasma Katana' },
     short: { ru: 'Плазменная катана', en: 'Plasma Katana' },
-    desc: { ru: 'Клинок из перекованного горного резака. Режет и броню, и скафандры.', en: 'A blade reforged from a mining cutter. Slices through armour and suits alike.' },
+    desc: { ru: 'Клинок из перекованного горного резака. Режет и броню, и скафандры.', en: 'A blade reforged from a mining cutter. Slices through armor and suits alike.' },
   },
   riveter: {
     name: { ru: 'Клепальщик «Молот»', en: 'Hammer Riveter' },
@@ -1417,7 +1417,7 @@ export function weaponDesc(id: WeaponId): string {
 
 const MODE_COPY: Record<ModeId, { name: Bi; desc: Bi }> = {
   duel2v2: {
-    name: { ru: '2 на 2', en: '2 vs 2' },
+    name: { ru: '2 на 2', en: '2v2' },
     desc: {
       ru: 'Две пары бойцов сходятся в тесной схватке над небольшим карьером. Под мостами можно пройти вниз головой.',
       en: 'Two pairs of fighters slug it out over a small open pit. Switch on your mag-boots and walk under the bridges.',
@@ -1431,7 +1431,7 @@ const MODE_COPY: Record<ModeId, { name: Bi; desc: Bi }> = {
     },
   },
   war4v4: {
-    name: { ru: '4 на 4 — Захват', en: '4 vs 4 — Conquest' },
+    name: { ru: '4 на 4 — Захват', en: '4v4 — Conquest' },
     desc: {
       ru: 'ARTEMIS против SELENE. Удерживайте точки: A — завод, B — буровую на дне шахты, C — рудные силосы.',
       en: 'ARTEMIS vs SELENE. Hold the points: A, the processing plant; B, the drill rig in the mine; C, the ore silos.',
@@ -1581,12 +1581,12 @@ const TIPS: Bi[] = [
   { ru: 'В вакууме звуки глухие — следите за индикаторами урона вокруг прицела.', en: 'Sound is muffled in a vacuum — watch the damage indicators around your crosshair.' },
   { ru: 'Удушье наступает не сразу: у вас есть время добраться до кислородного баллона или до союзника с пеной.', en: 'Suffocation isn’t instant: you have time to reach an O₂ canister or an ally with a foam projector.' },
   { ru: 'Точка B лежит на дне шахты: сверху её удобно простреливать, а спускаться туда опасно.', en: 'Point B sits at the bottom of the mine: easy to shoot into from above, dangerous to go down to.' },
-  { ru: 'Снаряды летят по настоящей лунной баллистике (1/6 g) и почти не проседают — цельтесь ниже, чем привыкли.', en: 'Projectiles follow true lunar ballistics (1/6 g) and barely drop — aim lower than you’re used to.' },
+  { ru: 'Гранаты, заклёпки и пена летят по настоящей лунной баллистике (1/6 g) и почти не проседают — цельтесь ниже, чем привыкли.', en: 'Grenades, rivets and foam follow true lunar ballistics (1/6 g) and barely drop — aim lower than you’re used to.' },
   { ru: 'Крюк-кошка [G] есть у каждого бойца. У цели сами включаются воздушные тормоза, а [Пробел] отцепляет трос с разгона. Перезарядка — 18 с.', en: 'Every fighter carries a grappling hook [G]. Air brakes kick in near the anchor; press [Space] to let go and slingshot. 18 s cooldown.' },
   { ru: 'Сервиторы Кузни оттягивают огонь на себя — уничтожайте их первыми или обходите.', en: 'Forge’s servitors draw fire — take them out first or flank them.' },
   { ru: 'Отражение Клинка отправляет снаряды обратно. Не стреляйте ему в лицо, пока клинок светится.', en: 'Blade’s Deflect sends projectiles straight back. Don’t shoot him head-on while his blade glows.' },
   { ru: 'Пока вы мертвы, нажмите [Y], чтобы сменить героя до возрождения.', en: 'While you’re down, press [Y] to switch heroes before you respawn.' },
-  { ru: '[V] — быстрый удар в ближнем бою. Выручает, когда враг вплотную, а магазин пуст.', en: '[V] is a quick melee strike — a lifesaver when an enemy is in your face and your mag is empty.' },
+  { ru: '[V] — быстрый удар в ближнем бою. Выручает, когда враг вплотную, а патроны кончились.', en: '[V] is a quick melee strike — a lifesaver when an enemy is in your face and you’re out of ammo.' },
 ];
 
 export function tipCount(): number {
@@ -1618,11 +1618,11 @@ export function fmtDateTime(ts: number): string {
 const PASSIVE_COPY: Record<PassiveId, { name: Bi; desc: Bi }> = {
   afterburner: {
     name: { ru: 'Форсаж', en: 'Afterburner' },
-    desc: { ru: 'Ранец заправляется на 60 % быстрее и понемногу восполняет топливо даже в полёте, пока вы не жжёте тягу.', en: 'The jetpack refuels 60 % faster and trickles fuel back even mid-air while you are not thrusting.' },
+    desc: { ru: 'Ранец заправляется на 60% быстрее и понемногу восполняет топливо даже в полёте, пока вы не включаете тягу.', en: 'Your jetpack refuels 60% faster and even trickles fuel back in mid-air while you’re not thrusting.' },
   },
   blastproof: {
-    name: { ru: 'Взрывостойкий', en: 'Blastproof' },
-    desc: { ru: 'Собственные взрывы не наносят урона, а их ударная волна подбрасывает сильнее — прыжки на гранатах.', en: 'Your own blasts deal no damage to you and push you harder — grenade-jump freely.' },
+    name: { ru: 'Взрывостойкость', en: 'Blastproof' },
+    desc: { ru: 'Собственные взрывы не наносят вам урона, а ударная волна подбрасывает сильнее — прыгайте на гранатах сколько угодно.', en: 'Your own explosions don’t hurt you and launch you harder. Blast-jump to your heart’s content.' },
   },
   spotter: {
     name: { ru: 'Метка снайпера', en: 'Spotter' },
@@ -1630,49 +1630,49 @@ const PASSIVE_COPY: Record<PassiveId, { name: Bi; desc: Bi }> = {
   },
   backstab: {
     name: { ru: 'Удар в спину', en: 'Backstab' },
-    desc: { ru: '+25 % урона по врагам, которые стоят к вам спиной.', en: '+25 % damage against enemies facing away from you.' },
+    desc: { ru: '+25% урона по врагам, стоящим к вам спиной.', en: '+25% damage to enemies facing away from you.' },
   },
   moonstep: {
     name: { ru: 'Лунный шаг', en: 'Moon Step' },
-    desc: { ru: 'Второй прыжок в воздухе: толчок двигателями скафандра в сторону движения.', en: 'A second jump in mid-air: a suit-thruster kick in your movement direction.' },
+    desc: { ru: 'Двойной прыжок: в воздухе двигатели скафандра дают толчок в сторону движения.', en: 'Double jump: in mid-air, your suit thrusters kick you in the direction you’re moving.' },
   },
   fusion: {
     name: { ru: 'Термоядерная броня', en: 'Fusion Plating' },
-    desc: { ru: 'Пока скафандр цел (не меньше 50 %), весь входящий урон снижен на 20 %.', en: 'While your suit holds (50 % or more), all incoming damage is reduced by 20 %.' },
+    desc: { ru: 'Пока скафандр держится (прочность от 50%), входящий урон снижен на 20%.', en: 'While your suit holds (50% integrity or more), incoming damage is reduced by 20%.' },
   },
   lifelink: {
     name: { ru: 'Жизнеобеспечение', en: 'Life-Support Link' },
-    desc: { ru: 'Союзники в 12 м от вас теряют кислород при разгерметизации вдвое медленнее и восстанавливают 4 ед. здоровья в секунду.', en: 'Allies within 12 m leak oxygen half as fast when breached and regenerate 4 HP per second.' },
+    desc: { ru: 'Союзники в радиусе 12 м теряют кислород при разгерметизации вдвое медленнее и восстанавливают 4 ед. здоровья в секунду.', en: 'Allies within 12 m leak oxygen half as fast when breached and regenerate 4 HP per second.' },
   },
   fieldrepair: {
     name: { ru: 'Полевой ремонт', en: 'Field Repairs' },
-    desc: { ru: 'Скафандры союзников в 10 м от вас (и ваш) чинятся на 4 % в секунду — утечку можно закрыть, не тратя герметик.', en: 'Suits of allies within 10 m (and yours) repair 4 % per second — breaches close without sealant.' },
+    desc: { ru: 'Скафандры союзников в радиусе 10 м (и ваш собственный) восстанавливаются на 4% в секунду — пробоина затянется и без герметика.', en: 'Your suit and those of allies within 10 m repair 4% per second — breaches close without sealant.' },
   },
   dronelink: {
     name: { ru: 'Связь роя', en: 'Drone Link' },
-    desc: { ru: 'Попадания из винтовки помечают врага на 2,5 с: он виден команде, а ваши дроны и турели наносят ему на 25 % больше урона.', en: 'Rifle hits mark an enemy for 2.5 s: revealed to your team, and your drones and turrets deal 25 % more damage to it.' },
+    desc: { ru: 'Попадание из винтовки ненадолго выдаёт врага команде и помечает его на 2,5 с: ваши дроны и турели наносят ему на 25% больше урона.', en: 'Rifle hits briefly reveal an enemy to your team and mark it for 2.5 s: your drones and turrets deal 25% more damage to it.' },
   },
 };
 
 const ROLE_PASSIVE_COPY: Record<RolePassiveId, { name: Bi; desc: Bi }> = {
-  heavy: { name: { ru: 'Тяжёлый каркас', en: 'Heavy Frame' }, desc: { ru: 'Отбрасывание слабее, замедления действуют вдвое мягче.', en: 'Less knockback; slows are half as strong.' } },
-  medic: { name: { ru: 'Полевая выучка', en: 'Field Medic' }, desc: { ru: 'Здоровье начинает восстанавливаться уже через 3,5 с без урона (вместо 6 с).', en: 'Health regeneration starts after 3.5 s without damage (instead of 6 s).' } },
-  lightstep: { name: { ru: 'Лёгкий шаг', en: 'Light Step' }, desc: { ru: 'Шаги почти не слышны, по стенам на магнитах вы ходите на 25 % быстрее, падения безопаснее.', en: 'Near-silent footsteps, 25 % faster mag-boot walking, safer falls.' } },
-  bloodrush: { name: { ru: 'Кураж', en: 'Bloodrush' }, desc: { ru: 'Устранение восстанавливает 50 ед. здоровья, управление в воздухе лучше.', en: 'Eliminations restore 50 HP; better air control.' } },
-  steady: { name: { ru: 'Твёрдая рука', en: 'Steady Hands' }, desc: { ru: 'Отдача и разброс на 20 % меньше, перезарядка на 15 % быстрее.', en: '20 % less recoil and bloom, 15 % faster reloads.' } },
-  salvage: { name: { ru: 'Утилизация', en: 'Salvage' }, desc: { ru: 'Уничтоженная вражеская техника или сервитор восстанавливает 40 ед. здоровья и немного ульты.', en: 'Destroying an enemy device or servitor restores 40 HP and a bit of ultimate charge.' } },
+  heavy: { name: { ru: 'Тяжёлый каркас', en: 'Heavy Frame' }, desc: { ru: 'Вас труднее отбросить, а замедления действуют вдвое слабее.', en: 'Reduced knockback; slows are half as strong.' } },
+  medic: { name: { ru: 'Полевая выучка', en: 'Field Medic' }, desc: { ru: 'Здоровье начинает восстанавливаться уже через 3,5 с без урона (вместо 6 с).', en: 'Health starts regenerating after 3.5 s without damage (instead of 6 s).' } },
+  lightstep: { name: { ru: 'Лёгкий шаг', en: 'Light Step' }, desc: { ru: 'Шаги почти не слышны, по стенам на магнитных ботинках вы ходите на 25% быстрее, а падения безопаснее.', en: 'Near-silent footsteps, 25% faster walking on mag-boots and safer falls.' } },
+  bloodrush: { name: { ru: 'Кураж', en: 'Bloodrush' }, desc: { ru: 'Каждое устранение восстанавливает 50 ед. здоровья; лучше управление в воздухе.', en: 'Eliminations restore 50 HP; better air control.' } },
+  steady: { name: { ru: 'Твёрдая рука', en: 'Steady Hands' }, desc: { ru: 'Отдача и разброс на 20% меньше, перезарядка на 15% быстрее.', en: '20% less recoil and bloom, 15% faster reloads.' } },
+  salvage: { name: { ru: 'Утилизация', en: 'Salvage' }, desc: { ru: 'Уничтожив вражескую технику или сервитора, вы восстанавливаете 40 ед. здоровья и немного заряда суперспособности. Перезарядка на 10% быстрее.', en: 'Destroying an enemy device or servitor restores 40 HP and some ultimate charge. 10% faster reloads.' } },
 };
 
 const WEAPON_SKILL: Partial<Record<WeaponId, Bi>> = {
-  pulse: { ru: 'ПКМ — прицел. Первый выстрел после паузы в прицеле точен и бьёт на 15 % сильнее; отдачу тяните вниз.', en: 'RMB — aim. The first shot from rest while aiming is pin-point and hits 15 % harder; pull down against the climb.' },
-  rail: { ru: 'ПКМ — оптика и заряд (0,9 с). Полный заряд: 100 в тело, 230 в голову. Без заряда — лишь 42 %.', en: 'RMB — scope and charge (0.9 s). Full charge: 100 body, 230 head. Uncharged shots deal only 42 %.' },
-  plasma: { ru: 'ПКМ — сфокусированный плазменный заряд (2 ячейки): быстрый выстрел на средней дистанции.', en: 'RMB — focused plasma slug (2 cells): a fast mid-range poke.' },
-  glauncher: { ru: 'ПКМ — дистанционный подрыв всех ваших гранат.', en: 'RMB — remote-detonate all of your grenades.' },
-  sealer: { ru: 'ПКМ — липкий сгусток пены: лужа 5 с лечит союзников и замедляет врагов.', en: 'RMB — sticky foam glob: a 5 s puddle that heals allies and slows enemies.' },
-  twinarc: { ru: 'Статика: каждое 10-е попадание подряд по одной цели разряжается дугой (+20) и перескакивает на соседа.', en: 'Static: every 10th consecutive hit on one target discharges an arc (+20) that jumps to a neighbour.' },
-  blade: { ru: 'Комбо: каждый третий удар подряд — тяжёлый добивающий (×1,5 урона, шире и дальше).', en: 'Combo: every third swing in a row is a heavy finisher (×1.5 damage, wider and longer).' },
-  riveter: { ru: 'Без перезарядки: 32 заклёпки до перегрева (2 с остывания). R — досрочный сброс тепла.', en: 'No reloads: 32 rivets to overheat (2 s lockout). R vents the heat early.' },
-  burst: { ru: '«Трель»: если два первых выстрела очереди попали в одну цель, третий наносит +60 %.', en: '"Trill": if the first two rounds of a burst hit the same target, the third deals +60 %.' },
+  pulse: { ru: 'ПКМ — голографический прицел. Первый выстрел после паузы в прицеле идёт точно в цель и бьёт на 15% сильнее. Ствол уводит вверх — тяните мышь вниз.', en: 'RMB — holo sight. Your first shot from rest while aiming is pinpoint-accurate and hits 15% harder. Pull down to fight the climb.' },
+  rail: { ru: 'ПКМ — оптика и заряд (0,9 с). Полный заряд: 100 урона в тело, 230 в голову. Без заряда — лишь 42%.', en: 'RMB — scope and charge (0.9 s). Full charge: 100 body, 230 head. Uncharged shots deal only 42%.' },
+  plasma: { ru: 'ПКМ — сфокусированный плазменный заряд (2 ячейки): быстрый выстрел на среднюю дистанцию.', en: 'RMB — focused plasma slug (2 cells): a fast mid-range poke.' },
+  glauncher: { ru: 'ПКМ — дистанционный подрыв всех ваших гранат.', en: 'RMB — remotely detonate all of your grenades.' },
+  sealer: { ru: 'ПКМ — липкий сгусток пены (5 ячеек): лужа на 5 с лечит союзников и замедляет врагов.', en: 'RMB — sticky foam glob (5 cells): a 5 s puddle that heals allies and slows enemies.' },
+  twinarc: { ru: 'Статика: каждое 10-е попадание подряд по одной цели разряжается дугой (+20 урона), которая перескакивает на соседнего врага.', en: 'Static: every 10th consecutive hit on one target discharges an arc (+20 damage) that jumps to a nearby enemy.' },
+  blade: { ru: 'Комбо: каждый третий удар подряд — тяжёлый добивающий (×1,5 урона, шире и дальше).', en: 'Combo: every third swing in a row is a heavy finisher (×1.5 damage, wider and longer reach).' },
+  riveter: { ru: 'Без перезарядки: 32 заклёпки до перегрева (2 с на остывание). R — досрочный сброс тепла.', en: 'No reloads: 32 rivets to overheat (2 s lockout). R vents the heat early.' },
+  burst: { ru: '«Трель»: если первые два выстрела очереди попали в одну цель, третий наносит +60% урона.', en: 'Trill: if the first two rounds of a burst hit the same target, the third deals +60% damage.' },
 };
 
 export function passiveName(id: PassiveId): string {

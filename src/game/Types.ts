@@ -308,73 +308,73 @@ export const HEROES: Record<HeroId, HeroDef> = {
   condor: {
     id: 'condor', role: 'ranged', passive: 'afterburner', mass: 1.0, health: 200, suit: 100, speed: 5.4, weapon: 'pulse', ability1: ab('dash', 6), ability2: ab('frag', 9), ultimate: ab('swarm', 0, 2.2), ultCost: 1800, sealants: 2, color: '#ff5a4d', visor: '#ffb347', difficulty: 1,
     builds: [
-      B('assault', 'Штурмовик', 'Assault', 'Стандартная выучка: сбалансированный урон и мобильность.', 'Standard training: balanced damage and mobility.', 1, {}),
-      B('grenadier', 'Гренадёр', 'Grenadier', 'Осколочная граната распадается на кассетные заряды, перезарядка E −20%.', 'Frag splits into cluster bomblets, E cooldown −20%.', 3, { cd2: 0.8, flags: ['cluster'] }),
-      B('skirmisher', 'Налётчик', 'Skirmisher', 'Два заряда рывка, +10% скорости, −15% здоровья.', 'Two dash charges, +10% speed, −15% health.', 6, { charges1: 1, speed: 1.1, health: 0.85 }),
+      B('assault', 'Штурмовик', 'Assault', 'Стандартная выучка: сбалансированные урон и мобильность.', 'Standard training: balanced damage and mobility.', 1, {}),
+      B('grenadier', 'Гренадёр', 'Grenadier', 'Осколочная граната разлетается кассетными зарядами; перезарядка E −20%.', 'Frag Grenade splits into cluster bomblets; E cooldown −20%.', 3, { cd2: 0.8, flags: ['cluster'] }),
+      B('skirmisher', 'Налётчик', 'Skirmisher', 'Два заряда рывка, +10% к скорости, −15% здоровья.', 'Two Jet Dash charges, +10% speed, −15% health.', 6, { charges1: 1, speed: 1.1, health: 0.85 }),
     ],
   },
   lunatic: {
     id: 'lunatic', role: 'ranged', passive: 'blastproof', mass: 1.05, health: 200, suit: 100, speed: 5.3, weapon: 'glauncher', ability1: ab('rocketjump', 7), ability2: ab('mine', 10), ultimate: ab('tacnuke', 0, 0), ultCost: 2300, sealants: 2, color: '#ff8a1f', visor: '#ffe066', difficulty: 2,
     builds: [
-      B('demolition', 'Подрывник', 'Demolition', 'Больше гранат в барабане, быстрее перезарядка.', 'Bigger drum, faster reload.', 1, { mag: 1.34 }),
-      B('minelayer', 'Минёр', 'Minelayer', 'Две мины одновременно, мины оглушают ЭМИ.', 'Two mines at once, mines also EMP.', 3, { charges2: 1, flags: ['empMine'] }),
-      B('bouncer', 'Попрыгун', 'Bouncer', 'Ракетный прыжок: 2 заряда и урон по приземлению.', 'Rocket jump: 2 charges and a landing blast.', 6, { charges1: 1, flags: ['landBlast'] }),
+      B('demolition', 'Подрывник', 'Demolisher', 'Увеличенный барабан: 8 гранат вместо 6.', 'Bigger drum: 8 grenades instead of 6.', 1, { mag: 1.34 }),
+      B('minelayer', 'Минёр', 'Minelayer', 'Два заряда мин; взрыв мины бьёт ещё и ЭМИ.', 'Two mine charges; mines also release an EMP.', 3, { charges2: 1, flags: ['empMine'] }),
+      B('bouncer', 'Попрыгун', 'Bouncer', 'Ракетный прыжок: 2 заряда и взрыв при приземлении.', 'Rocket Jump: 2 charges and a blast on landing.', 6, { charges1: 1, flags: ['landBlast'] }),
     ],
   },
   needle: {
     id: 'needle', role: 'scout', passive: 'spotter', mass: 0.95, health: 175, suit: 75, speed: 5.3, weapon: 'rail', ability1: ab('decoy', 12, 8), ability2: ab('sensor', 14, 12), ultimate: ab('overcharge', 0, 7), ultCost: 1700, sealants: 2, color: '#4db8ff', visor: '#7ff0ff', difficulty: 3,
     builds: [
-      B('marksman', 'Стрелок', 'Marksman', 'Быстрее заряд рельсотрона при прицеливании.', 'Faster railgun charge while scoped.', 1, { fireRate: 1.15 }),
-      B('recon', 'Разведчик', 'Recon', 'Сенсор дольше и шире, подсвечивает врагов всей команде.', 'Sensor lasts longer and wider, reveals for the team.', 3, { cd2: 0.75, flags: ['wideSensor'] }),
-      B('ghost', 'Призрак', 'Ghost', 'Приманка становится вашей копией, вы невидимы 2 с.', 'Decoy mimics you and you go invisible for 2 s.', 6, { flags: ['decoyCloak'] }),
+      B('marksman', 'Меткий стрелок', 'Marksman', 'Рельсотрон заряжается и стреляет на 15% быстрее.', 'Railgun charges and fires 15% faster.', 1, { fireRate: 1.15 }),
+      B('recon', 'Дозорный', 'Recon', 'Датчик движения перезаряжается на 25% быстрее.', 'Motion Sensor cooldown −25%.', 3, { cd2: 0.75, flags: ['wideSensor'] }),
+      B('ghost', 'Призрак', 'Ghost', 'Выпуская приманку, вы на 2 с становитесь невидимы.', 'Deploying your decoy also cloaks you for 2 s.', 6, { flags: ['decoyCloak'] }),
     ],
   },
   phantom: {
     id: 'phantom', role: 'scout', passive: 'backstab', mass: 0.9, health: 175, suit: 75, speed: 5.8, weapon: 'twinarc', ability1: ab('blink', 5, 0, 2), ability2: ab('cloak', 12, 5), ultimate: ab('empnova', 0, 0), ultCost: 1900, sealants: 2, color: '#b06cff', visor: '#d9a8ff', difficulty: 3,
     builds: [
-      B('infiltrator', 'Лазутчик', 'Infiltrator', 'Невидимость дольше, первый выстрел из инвиза +50% урона.', 'Longer cloak, first shot from cloak +50% damage.', 1, { flags: ['ambush'] }),
-      B('stormer', 'Шторм', 'Storm', '3 заряда блинка, −10% урона.', '3 blink charges, −10% damage.', 3, { charges1: 1, damage: 0.9 }),
-      B('saboteur', 'Диверсант', 'Saboteur', 'ЭМИ-волна дешевле и шире.', 'EMP nova cheaper and wider.', 6, { ultCost: 0.8, flags: ['wideEmp'] }),
+      B('infiltrator', 'Лазутчик', 'Infiltrator', 'Маскировка длится 7 с, первый выстрел из невидимости наносит +50% урона.', 'Cloak lasts 7 s; your first shot out of cloak deals +50% damage.', 1, { flags: ['ambush'] }),
+      B('stormer', 'Шторм', 'Storm', '3 заряда скачка, −10% урона.', '3 Blink charges, −10% damage.', 3, { charges1: 1, damage: 0.9 }),
+      B('saboteur', 'Диверсант', 'Saboteur', 'ЭМИ-нова на 20% дешевле и бьёт шире.', 'EMP Nova costs 20% less and has a wider radius.', 6, { ultCost: 0.8, flags: ['wideEmp'] }),
     ],
   },
   blade: {
     id: 'blade', role: 'melee', passive: 'moonstep', mass: 1.0, health: 225, suit: 100, speed: 5.9, weapon: 'blade', ability1: ab('lunge', 6), ability2: ab('deflect', 9, 1.8), ultimate: ab('moonblade', 0, 6), ultCost: 1900, sealants: 2, color: '#39e3a8', visor: '#b8ffe6', difficulty: 2,
     builds: [
-      B('duelist', 'Дуэлянт', 'Duelist', 'Удары быстрее, выпад сбрасывается при убийстве.', 'Faster swings, lunge resets on kill.', 1, { fireRate: 1.1, flags: ['lungeReset'] }),
-      B('guardian', 'Страж', 'Guardian', 'Отражение дольше и лечит вас.', 'Longer deflect that heals you.', 3, { cd2: 0.85, flags: ['deflectHeal'] }),
+      B('duelist', 'Дуэлянт', 'Duelist', 'Удары на 10% быстрее, устранение мгновенно перезаряжает выпад.', 'Swings 10% faster; eliminations reset Lunge.', 1, { fireRate: 1.1, flags: ['lungeReset'] }),
+      B('guardian', 'Страж', 'Guardian', 'Отражение длится дольше, чаще перезаряжается и лечит вас.', 'Deflect lasts longer, recharges faster and heals you.', 3, { cd2: 0.85, flags: ['deflectHeal'] }),
       B('berserker', 'Берсерк', 'Berserker', '+20% урона, −20% здоровья, вампиризм.', '+20% damage, −20% health, lifesteal.', 6, { damage: 1.2, health: 0.8, flags: ['lifesteal'] }),
     ],
   },
   reactor: {
     id: 'reactor', role: 'tank', passive: 'fusion', mass: 1.6, health: 300, suit: 200, speed: 5.0, weapon: 'plasma', ability1: ab('dome', 12, 8), ability2: ab('slam', 8), ultimate: ab('blackhole', 0, 4), ultCost: 2100, sealants: 2, color: '#ffc21a', visor: '#ffd36b', difficulty: 2,
     builds: [
-      B('bulwark', 'Бастион', 'Bulwark', 'Купол прочнее и больше.', 'Tougher, larger dome.', 1, { flags: ['bigDome'] }),
-      B('juggernaut', 'Джаггернаут', 'Juggernaut', '+15% здоровья, удар отбрасывает сильнее.', '+15% health, stronger slam knockback.', 3, { health: 1.15, flags: ['heavySlam'] }),
-      B('breacher', 'Штурмовик щитов', 'Breacher', 'Вместо купола — переносная баррикада, быстрее перезарядка.', 'Deployable barricade instead of dome, faster cooldown.', 6, { swap1: 'barricade', cd1: 0.6 }),
+      B('bulwark', 'Бастион', 'Bulwark', 'Купол больше и прочнее.', 'A larger, tougher Shield Dome.', 1, { flags: ['bigDome'] }),
+      B('juggernaut', 'Джаггернаут', 'Juggernaut', '+15% здоровья, магнитный удар отбрасывает дальше.', '+15% health, harder-hitting Mag Slam knockback.', 3, { health: 1.15, flags: ['heavySlam'] }),
+      B('breacher', 'Таран', 'Breacher', 'Вместо купола — две баррикады, перезарядка на 40% короче.', 'Two barricades instead of the dome, 40% shorter cooldown.', 6, { swap1: 'barricade', cd1: 0.6 }),
     ],
   },
   helios: {
     id: 'helios', role: 'support', passive: 'lifelink', mass: 1.0, health: 200, suit: 75, speed: 5.4, weapon: 'sealer', ability1: ab('o2burst', 10), ability2: ab('medstation', 16, 10), ultimate: ab('lifebubble', 0, 5), ultCost: 2000, sealants: 4, color: '#5fe36a', visor: '#9dffb0', difficulty: 1,
     builds: [
-      B('medic', 'Медик', 'Medic', 'Сильнее лечение пеной.', 'Stronger foam healing.', 1, { damage: 1.2 }),
-      B('lifeline', 'Спасатель', 'Lifeline', 'Кислородный выброс восстанавливает скафандр полностью.', 'O2 burst fully repairs suits.', 3, { cd1: 0.85, flags: ['fullSeal'] }),
-      B('warden', 'Хранитель', 'Warden', 'Мед-станция ставит силовое поле союзникам.', 'Med station grants allies a force field.', 6, { flags: ['stationField'] }),
+      B('medic', 'Медик', 'Medic', 'Пена лечит на 20% сильнее.', 'Foam heals 20% more.', 1, { damage: 1.2 }),
+      B('lifeline', 'Спасатель', 'Lifeline', 'Кислородный выброс перезаряжается быстрее и полностью восстанавливает скафандры и O₂.', 'O₂ Burst recharges faster and fully restores suits and oxygen.', 3, { cd1: 0.85, flags: ['fullSeal'] }),
+      B('warden', 'Хранитель', 'Warden', 'Медстанция окружает союзников силовым полем.', 'Med Station also shields allies with a force field.', 6, { flags: ['stationField'] }),
     ],
   },
   forge: {
     id: 'forge', role: 'engineer', passive: 'fieldrepair', mass: 1.2, health: 225, suit: 125, speed: 5.1, weapon: 'riveter', ability1: ab('servitor', 14, 25, 2), ability2: ab('turret', 16, 30), ultimate: ab('forcefield', 0, 7), ultCost: 2100, sealants: 3, color: '#ff9f43', visor: '#ffd08a', difficulty: 2,
     builds: [
-      B('mechanic', 'Механик', 'Mechanic', 'Турель стреляет быстрее, сервиторы прочнее.', 'Faster turret, tougher servitors.', 1, { flags: ['toughServitors'] }),
-      B('fortifier', 'Фортификатор', 'Fortifier', 'Вместо сервиторов — заграждения-укрытия (2 заряда).', 'Barricades instead of servitors (2 charges).', 3, { swap1: 'barricade', cd1: 0.6 }),
-      B('legion', 'Легион', 'Legion', '3 сервитора, но без турели: вместо неё дрон-охотник.', '3 servitors, hunter drone instead of turret.', 6, { charges1: 1, swap2: 'huntdrone' }),
+      B('mechanic', 'Механик', 'Mechanic', 'Турель работает 45 с вместо 30, сервиторы прочнее.', 'Turret lasts 45 s instead of 30; tougher servitors.', 1, { flags: ['toughServitors'] }),
+      B('fortifier', 'Фортификатор', 'Fortifier', 'Вместо сервиторов — баррикады-укрытия (до двух сразу), перезарядка быстрее.', 'Barricades instead of servitors (up to two at once), faster cooldown.', 3, { swap1: 'barricade', cd1: 0.6 }),
+      B('legion', 'Легион', 'Legion', '3 заряда сервиторов, но вместо турели — дрон-охотник.', '3 servitor charges, but a hunter drone replaces the turret.', 6, { charges1: 1, swap2: 'huntdrone' }),
     ],
   },
   hive: {
     id: 'hive', role: 'engineer', passive: 'dronelink', mass: 1.0, health: 200, suit: 100, speed: 5.3, weapon: 'burst', ability1: ab('huntdrone', 12, 12), ability2: ab('spotdrone', 14, 10), ultimate: ab('kamikaze', 0, 0), ultCost: 2000, sealants: 2, color: '#e6e14d', visor: '#fff59a', difficulty: 2,
     builds: [
-      B('hunter', 'Охотник', 'Hunter', 'Дрон-охотник живёт дольше и наносит больше урона.', 'Hunter drone lasts longer and hits harder.', 1, { flags: ['strongHunter'] }),
-      B('overseer', 'Надзиратель', 'Overseer', 'Дрон-наводчик подсвечивает сквозь стены и замедляет.', 'Spotter drone reveals through walls and slows.', 3, { flags: ['slowSpot'] }),
-      B('swarm', 'Рой', 'Swarm', 'Ульта выпускает 8 камикадзе вместо 5.', 'Ultimate releases 8 kamikaze drones instead of 5.', 6, { flags: ['bigSwarm'], ultCost: 1.1 }),
+      B('hunter', 'Охотник', 'Hunter', 'Дрон-охотник прочнее, живёт дольше и бьёт сильнее.', 'Hunter Drone is tougher, lasts longer and hits harder.', 1, { flags: ['strongHunter'] }),
+      B('overseer', 'Надзиратель', 'Overseer', 'Дрон-наводчик охватывает больший радиус и замедляет врагов.', 'Spotter Drone covers a wider area and slows enemies.', 3, { flags: ['slowSpot'] }),
+      B('swarm', 'Рой', 'Swarm', 'Суперспособность выпускает 8 камикадзе вместо 5, но стоит на 10% дороже.', 'Ultimate releases 8 kamikaze drones instead of 5, but costs 10% more.', 6, { flags: ['bigSwarm'], ultCost: 1.1 }),
     ],
   },
 };

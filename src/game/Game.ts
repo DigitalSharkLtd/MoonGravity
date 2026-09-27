@@ -13,6 +13,7 @@ import { HeroModel } from '../entities/HeroModel';
 import { Viewmodel } from './Viewmodel';
 import { updateVitals, leakRate } from './Vitals';
 import { NetBridge } from './NetBridge';
+import { weaponName } from '../ui/i18n';
 import { gameLang, gs, setGameLang } from './Strings';
 import { MODES, HEROES, ModeId, HeroId, HeroDef, Settings, HudState, HudEvent, ModeInfo, ScreenMarker, Blip, Action, WeaponId, AbilityId, MatchResult } from './Types';
 import { WEAPONS, adsCapable, coneOf } from '../weapons/WeaponDefs';
@@ -583,6 +584,10 @@ export class Game {
       if (wall) killer.stats.wallKills++;
       if (source === 'suffocation') killer.stats.suffocations++;
       if (killer.ult.active > 0 || source === 'swarm' || source === 'blackhole' || source === 'nuke' || source === 'empnova') killer.stats.ultKills++;
+      // multikill: 3 eliminations within 4 s (counted once per chain)
+      killer.recentKills = killer.recentKills.filter((tk) => this.time - tk < 4);
+      killer.recentKills.push(this.time);
+      if (killer.recentKills.length === 3) killer.stats.multikills++;
       const ws = killer.stats.weapons[source as WeaponId];
       if (ws) ws.kills++;
       const dist = killer.body.pos.distanceTo(t.body.pos);
@@ -791,7 +796,7 @@ export class Game {
 
   onPodTaken(f: Fighter, w: WeaponId): void {
     this.netHook?.('podt', { f: f.id, w });
-    this.event({ type: 'toast', text: gs('podTaken', { name: f.name, weapon: w }), kind: f === this.local ? 'good' : 'info' });
+    this.event({ type: 'toast', text: gs('podTaken', { name: f.name, weapon: weaponName(w) }), kind: f === this.local ? 'good' : 'info' });
     this.sound('pickup', f, 1);
     if (f === this.local) this.xp(f, 50, 'xpPod');
   }

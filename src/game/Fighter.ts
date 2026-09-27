@@ -99,11 +99,13 @@ export interface FighterStats {
   nukes: number;
   longestKill: number;
   ultKills: number;
+  /** 3 kills within 4 s (ribbon) */
+  multikills: number;
   weapons: Partial<Record<WeaponId, { kills: number; headshots: number; shots: number; hits: number }>>;
 }
 
 export function emptyStats(): FighterStats {
-  return { kills: 0, deaths: 0, assists: 0, score: 0, damage: 0, healing: 0, streak: 0, bestStreak: 0, headshots: 0, shots: 0, hits: 0, captures: 0, wallKills: 0, suffocations: 0, nukes: 0, longestKill: 0, ultKills: 0, weapons: {} };
+  return { kills: 0, deaths: 0, assists: 0, score: 0, damage: 0, healing: 0, streak: 0, bestStreak: 0, headshots: 0, shots: 0, hits: 0, captures: 0, wallKills: 0, suffocations: 0, nukes: 0, longestKill: 0, ultKills: 0, multikills: 0, weapons: {} };
 }
 
 /** Hitbox spheres relative to feet along the body's up axis. */
@@ -171,6 +173,8 @@ export class Fighter {
   renderPos = new THREE.Vector3();
   renderQuat = new THREE.Quaternion();
   renderPitch = 0;
+  /** match times of recent kills (multikill ribbon) */
+  recentKills: number[] = [];
   /** body state at the start of the last fixed step: rendering interpolates prev → current */
   prevPos = new THREE.Vector3();
   prevQuat = new THREE.Quaternion();

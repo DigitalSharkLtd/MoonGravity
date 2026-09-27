@@ -472,6 +472,7 @@ export class Match {
     if (won) xp.push({ label: 'xpWin', amount: 1000 });
     const ribbons: RibbonId[] = [];
     if (mvp === me) ribbons.push('ace');
+    if (s.multikills > 0) ribbons.push('multikill');
     if (s.bestStreak >= 5) ribbons.push('killstreak5');
     if (s.bestStreak >= 10) ribbons.push('killstreak10');
     if (s.headshots >= 5) ribbons.push('headhunter');

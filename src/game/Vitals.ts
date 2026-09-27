@@ -32,7 +32,8 @@ export function updateVitals(g: Game, f: Fighter, dt: number): void {
   let repair = false;
   for (const o of g.fighters) {
     if (!o.alive || o.summonOf >= 0 || g.areEnemies(o, f)) continue;
-    if (o.passive === 'lifelink' && o.body.pos.distanceToSquared(f.body.pos) < 144) lifelink = true;
+    // Helios' link is for allies only; Forge's field repairs include his own suit (as the passive text says)
+    if (o !== f && o.passive === 'lifelink' && o.body.pos.distanceToSquared(f.body.pos) < 144) lifelink = true;
     if (o.passive === 'fieldrepair' && o.body.pos.distanceToSquared(f.body.pos) < 100) repair = true;
   }
   if (lifelink || repair) f.linkT = 0.3;

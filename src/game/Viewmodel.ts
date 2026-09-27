@@ -3,7 +3,7 @@ import { buildWeaponModel, WeaponModel } from '../weapons/WeaponModels';
 import type { HeroId, WeaponId } from './Types';
 import { HEROES } from './Types';
 import { stylize } from '../render/Materials';
-import { fabricSet } from '../render/TextureGen';
+import { HeroModel } from '../entities/HeroModel';
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -85,30 +85,88 @@ export class Viewmodel {
     if (this.hero === hero) return;
     this.hero = hero;
     for (const a of [this.armL, this.armR]) a.clear();
-    const def = HEROES[hero];
-    const accent = new THREE.Color(teamColor ?? new THREE.Color(def.color).getHex());
-    const fab = fabricSet();
-    const sleeve = new THREE.MeshStandardMaterial({ color: hero === 'phantom' ? 0x3a3f4c : 0xf0eee9, map: fab.map, normalMap: fab.normalMap, roughness: 0.85 });
-    stylize(sleeve, { rim: 0.3 });
-    const glove = new THREE.MeshStandardMaterial({ color: 0x2a2e38, roughness: 0.6, metalness: 0.3 });
-    const cuffM = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.4, metalness: 0.4 });
-    for (const [arm, s] of [
-      [this.armL, -1],
-      [this.armR, 1],
-    ] as const) {
-      const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.056, 0.3, 6, 14), sleeve);
-      fore.rotation.x = Math.PI / 2;
-      fore.position.z = 0.2;
-      const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.066, 0.066, 0.06, 14), cuffM);
-      cuff.rotation.x = Math.PI / 2;
-      cuff.position.z = -0.0;
-      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.058, 12, 10), glove);
-      hand.scale.set(1, 0.9, 1.3);
-      hand.position.z = -0.06;
-      arm.add(fore, cuff, hand);
-      arm.userData.side = s;
+    // cut the forearm + gauntlet out of the hero's real third-person model, so first person shows
+    // exactly the same armour, suit sleeve and paint as everyone else sees
+    const hm = new HeroModel(hero, teamColor);
+    try {
+      this.armR.add(this.cutArm(hm, 'R'));
+      this.armL.add(this.cutArm(hm, 'L'));
+    } finally {
+      hm.dispose();
     }
+    this.armL.userData.side = -1;
+    this.armR.userData.side = 1;
     this.weaponId = null;
+  }
+
+  /**
+   * Triangles whose dominant bone is the forearm or the hand, moved into forearm space and laid
+   * along the viewmodel arm axis (hand toward -Z, elbow toward +Z, wrist at the origin).
+   */
+  private cutArm(hm: HeroModel, side: 'L' | 'R'): THREE.Object3D {
+    const bones = hm.bones as unknown as Map<string, THREE.Bone>;
+    const fore = bones.get('fore' + side)!;
+    const hand = bones.get('hand' + side)!;
+    const keep = new Set([hm.skeleton.bones.indexOf(fore), hm.skeleton.bones.indexOf(hand)]);
+    const toArm = new THREE.Matrix4()
+      .makeTranslation(0, 0, 0.3)
+      .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))
+      .multiply(fore.matrixWorld.clone().invert());
+    const group = new THREE.Group();
+    group.scale.setScalar(0.85);
+    for (const mesh of hm.meshes) {
+      const src = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+      const si = src.getAttribute('skinIndex');
+      const sw = src.getAttribute('skinWeight');
+      if (!si || !sw) continue;
+      const dominant = (v: number): number => {
+        let bi = si.getX(v);
+        let bw = sw.getX(v);
+        for (let c = 1; c < 4; c++) {
+          const w = sw.getComponent(v, c);
+          if (w > bw) {
+            bw = w;
+            bi = si.getComponent(v, c);
+          }
+        }
+        return bi;
+      };
+      const tris: number[] = [];
+      const n = src.getAttribute('position').count;
+      for (let v = 0; v + 2 < n; v += 3) if (keep.has(dominant(v)) && keep.has(dominant(v + 1)) && keep.has(dominant(v + 2))) tris.push(v, v + 1, v + 2);
+      if (!tris.length) continue;
+      const out = new THREE.BufferGeometry();
+      for (const name of Object.keys(src.attributes)) {
+        if (name === 'skinIndex' || name === 'skinWeight') continue;
+        const a = src.getAttribute(name) as THREE.BufferAttribute;
+        const arr = new Float32Array(tris.length * a.itemSize);
+        tris.forEach((v, i) => {
+          for (let c = 0; c < a.itemSize; c++) arr[i * a.itemSize + c] = a.getComponent(v, c);
+        });
+        out.setAttribute(name, new THREE.BufferAttribute(arr, a.itemSize, a.normalized));
+      }
+      out.applyMatrix4(toArm);
+      const m = new THREE.Mesh(out, this.ownLit(mesh.material as THREE.Material));
+      m.castShadow = false;
+      group.add(m);
+    }
+    return group;
+  }
+
+  /** private copy of a hero material without the shadow-cascade setup (overlay scene has one light) */
+  private ownLit(m: THREE.Material): THREE.Material {
+    const c = m.clone();
+    const d = (c as THREE.Material & { defines?: Record<string, unknown> }).defines;
+    if (d) {
+      delete d.USE_CSM;
+      delete d.CSM_CASCADES;
+      delete d.CSM_FADE;
+    }
+    c.userData = {};
+    c.onBeforeCompile = () => {};
+    if ((c as THREE.MeshStandardMaterial).isMeshStandardMaterial) stylize(c as THREE.MeshStandardMaterial, { rim: 0.3 });
+    c.needsUpdate = true;
+    return c;
   }
 
   setWeapon(id: WeaponId, tint: number): void {

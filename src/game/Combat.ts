@@ -209,8 +209,12 @@ export class Combat {
     w.sinceShot += dt;
     if (w.comboT > 0) w.comboT -= dt;
     if (w.staticT > 0) w.staticT -= dt;
-    // the hero weapon keeps cooling while a super weapon is out
-    if (f.weapon !== w) this.tickHeat(f.weapon, dt);
+    // the hero weapon keeps cooling while a super weapon is out (its shot timer must keep
+    // running too, or passive cooling never starts after a quick switch)
+    if (f.weapon !== w) {
+      f.weapon.sinceShot += dt;
+      this.tickHeat(f.weapon, dt);
+    }
     this.tickHeat(w, dt);
     // bloom recovers once the trigger is released
     if (w.sinceShot > def.interval + 0.06 && w.burstLeft <= 0) w.spread = Math.max(0, w.spread - def.bloomDecay * dt);

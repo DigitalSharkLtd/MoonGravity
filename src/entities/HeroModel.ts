@@ -229,6 +229,9 @@ export class HeroModel {
   private deflectK = 0;
   private shieldMesh: THREE.Mesh | null = null;
   private armLen: [number, number] = [0.33, 0.3];
+  private airVy = 0;
+  private wasGrounded = true;
+  private landK = 0;
   private reloadK = 0;
   private castK = 0;
   private gunQ = new THREE.Quaternion();
@@ -505,8 +508,19 @@ export class HeroModel {
   update(dt: number, s: AnimState, time: number): void {
     const B = (n: BoneName) => this.bones.get(n)!;
     const moving = s.speed > 0.4 && s.grounded;
-    const run = s.speed > 4.8;
-    this.phase += dt * (moving ? Math.min(1.7, s.speed / 3.2) * 3.1 : 0);
+    const run = s.speed > 4.2;
+    // stride locked to ground distance so feet don't skate: 1.45 m per walk cycle,
+    // 2.6 m per lunar lope (long, low-gravity bounds)
+    if (moving) this.phase += ((s.speed * dt) / (run ? 2.6 : 1.45)) * 2;
+    // landing compression: remember how hard we came down
+    const vy = s.localVel.y;
+    if (!s.grounded) this.airVy = Math.min(this.airVy, vy);
+    else if (!this.wasGrounded) {
+      this.landK = Math.max(this.landK, THREE.MathUtils.clamp(-this.airVy / 5, 0, 1));
+      this.airVy = 0;
+    }
+    this.wasGrounded = s.grounded;
+    this.landK = Math.max(0, this.landK - dt * 2.6);
     const ph = this.phase * Math.PI;
     this.flinch = Math.max(0, this.flinch - dt * 5);
     this.fireKick = Math.max(0, this.fireKick - dt * 12);
@@ -567,16 +581,32 @@ export class HeroModel {
     const side = THREE.MathUtils.clamp(s.localVel.x / 5, -1, 1);
     const back = THREE.MathUtils.clamp(s.localVel.z / 5, -1, 1);
     const dirSign = back > 0.3 ? -1 : 1;
+    let lean = 0;
     if (moving) {
       if (run) {
-        // lunar bound: both legs swing together, body floats
-        const h = Math.abs(Math.sin(ph));
-        bob = h * 0.13;
-        const sw = Math.sin(ph * 2) * 0.3 * dirSign;
-        legL.rotation.set(sw - 0.25, 0, -side * 0.15);
-        legR.rotation.set(sw - 0.12, 0, -side * 0.15);
-        shinL.rotation.x = 0.45 + Math.cos(ph * 2) * 0.3;
-        shinR.rotation.x = 0.35 + Math.cos(ph * 2) * 0.3;
+        // lunar lope (Apollo "skip" gait): short push-off contact, long parabolic flight;
+        // legs sweep back under the body on contact, tuck and reach forward in flight
+        const c = (this.phase * 0.5) % 1;
+        const contact = 0.3;
+        let thigh: number;
+        let knee: number;
+        if (c < contact) {
+          const k = c / contact;
+          thigh = THREE.MathUtils.lerp(-0.42, 0.38, k);
+          knee = 0.3 + Math.sin(k * Math.PI) * 0.35;
+          bob = -Math.sin(k * Math.PI) * 0.05;
+        } else {
+          const k = (c - contact) / (1 - contact);
+          thigh = THREE.MathUtils.lerp(0.38, -0.42, k * k * (3 - 2 * k));
+          knee = 0.45 + Math.sin(k * Math.PI) * 0.75;
+          bob = Math.sin(k * Math.PI) * 0.2;
+        }
+        // skipping: trailing leg lags the lead leg
+        legL.rotation.set(thigh * dirSign - 0.06, 0, -side * 0.12);
+        legR.rotation.set((thigh + 0.22) * dirSign, 0, -side * 0.12);
+        shinL.rotation.x = knee;
+        shinR.rotation.x = knee + 0.15;
+        lean = -0.16 * dirSign;
       } else {
         const amp = 0.6 * Math.min(1, s.speed / 3);
         const sw = Math.sin(ph) * amp * dirSign;
@@ -587,18 +617,35 @@ export class HeroModel {
         shinR.rotation.x = 0.15 + Math.max(0, Math.sin(ph) * dirSign) * 0.65;
       }
     } else if (!s.grounded) {
+      // airborne: knees tucked while rising, legs reach down for the landing while falling
       const t = time * 1.3;
-      legL.rotation.set(-0.4 + Math.sin(t) * 0.08, 0, -0.06);
-      legR.rotation.set(0.15 + Math.sin(t + 1) * 0.08, 0, 0.06);
-      shinL.rotation.x = 0.7;
-      shinR.rotation.x = 0.4;
+      const fall = THREE.MathUtils.clamp(-vy / 4, 0, 1);
+      const tuck = 1 - fall;
+      legL.rotation.set(-0.5 * tuck - 0.15 * fall + Math.sin(t) * 0.06, 0, -0.06);
+      legR.rotation.set(0.1 * tuck - 0.05 * fall + Math.sin(t + 1) * 0.06, 0, 0.06);
+      shinL.rotation.x = 0.85 * tuck + 0.2 * fall;
+      shinR.rotation.x = 0.5 * tuck + 0.3 * fall;
     } else {
+      // idle: slow breathing and a lazy weight shift between the feet
       const br = Math.sin(time * 1.8) * 0.02;
-      legL.rotation.set(br, 0, -0.04);
-      legR.rotation.set(-br, 0, 0.04);
-      shinL.rotation.x = 0.06;
-      shinR.rotation.x = 0.06;
+      const shift = Math.sin(time * 0.45) * 0.03;
+      legL.rotation.set(br, 0, -0.04 + shift);
+      legR.rotation.set(-br, 0, 0.04 + shift);
+      shinL.rotation.x = 0.06 + Math.max(0, shift) * 1.5;
+      shinR.rotation.x = 0.06 + Math.max(0, -shift) * 1.5;
+      B('hips').position.x = shift * 0.6;
       bob = br * 0.2;
+    }
+    if (moving || !s.grounded) B('hips').position.x = 0;
+    // landing compression (spring back over ~0.4 s)
+    const lk = this.landK * this.landK;
+    if (lk > 0.001) {
+      legL.rotation.x -= 0.55 * lk;
+      legR.rotation.x -= 0.55 * lk;
+      shinL.rotation.x += 1.0 * lk;
+      shinR.rotation.x += 1.0 * lk;
+      bob -= 0.2 * lk;
+      lean -= 0.18 * lk;
     }
     B('footL').rotation.x = -shinL.rotation.x * 0.5 - legL.rotation.x * 0.3;
     B('footR').rotation.x = -shinR.rotation.x * 0.5 - legR.rotation.x * 0.3;
@@ -614,8 +661,10 @@ export class HeroModel {
     const p = s.pitch;
     const spine = B('spine');
     const chest = B('chest');
-    spine.rotation.set(p * 0.2 + cr * 0.2, 0, -side * 0.08);
-    chest.rotation.set(p * 0.2 + this.flinch * 0.25, 0, Math.sin(ph) * 0.03 * (moving ? 1 : 0));
+    // (positive X leans back) — crouch and lope lean the torso forward
+    spine.rotation.set(p * 0.2 - cr * 0.12 + lean, 0, -side * 0.08);
+    const breath = moving ? 0 : Math.sin(time * 1.8) * 0.015;
+    chest.rotation.set(p * 0.2 + this.flinch * 0.25 + breath, 0, Math.sin(ph) * 0.03 * (moving && !run ? 1 : 0));
     B('head').rotation.x = p * 0.3;
     const armPitch = p * 0.6 - this.fireKick * 0.12;
     const aimBase = Math.PI / 2 - 0.15;

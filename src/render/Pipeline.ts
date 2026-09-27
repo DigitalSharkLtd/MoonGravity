@@ -16,6 +16,10 @@ export interface PipelineOptions {
   bloom: boolean;
   outlines: boolean;
   filmGrain: boolean;
+  /** heavy: SMAA post anti-aliasing (defaults to on except 'low') */
+  antialias?: boolean;
+  /** medium: sun lens flare & glare */
+  lensFlare?: boolean;
 }
 
 /** Renders the scene into a HDR target with a depth texture (shared by AO and outlines). */
@@ -160,12 +164,13 @@ class GradePass extends Pass {
         uSunPos: { value: new THREE.Vector2(-10, -10) },
         uSunVis: { value: 0 },
         uDesat: { value: 0 },
+        uMotion: { value: new THREE.Vector2() },
       },
       vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
       fragmentShader: /* glsl */ `
         uniform sampler2D tDiffuse;
         uniform float uSat, uContrast, uVignette, uTintAmt, uFlash, uAberr, uTime, uBlur, uGrain, uAspect, uSunVis, uDesat;
-        uniform vec3 uTint; uniform vec2 uSunPos;
+        uniform vec3 uTint; uniform vec2 uSunPos; uniform vec2 uMotion;
         varying vec2 vUv;
         float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
         vec3 flare(vec2 uv) {
@@ -200,6 +205,16 @@ class GradePass extends Pass {
           col.r = texture2D(tDiffuse, vUv + off).r;
           col.g = texture2D(tDiffuse, vUv).g;
           col.b = texture2D(tDiffuse, vUv - off).b;
+          // camera-rotation motion blur (medium setting): 7 taps along the screen-space velocity
+          if (dot(uMotion, uMotion) > 2.5e-7) {
+            vec3 mb = col;
+            for (int i = 1; i <= 3; i++) {
+              float t = float(i) / 3.0;
+              mb += texture2D(tDiffuse, vUv + uMotion * t).rgb;
+              mb += texture2D(tDiffuse, vUv - uMotion * t).rgb;
+            }
+            col = mb / 7.0;
+          }
           if (uBlur > 0.0) {
             vec3 acc = col;
             float k = uBlur * 0.008;
@@ -321,10 +336,11 @@ export class Pipeline {
     this.grade = new GradePass();
     this.grade.mat.uniforms.uGrain.value = o.filmGrain ? 0.035 : 0;
     this.composer.addPass(this.grade);
-    if (o.quality !== 'low') {
+    if (o.antialias ?? o.quality !== 'low') {
       this.smaa = new SMAAPass();
       this.composer.addPass(this.smaa);
     } else this.smaa = null;
+    this.flareScale = o.lensFlare === false ? 0 : 1;
     this.composer.addPass(new OutputPass());
     this.composer.setSize(w, h);
   }
@@ -332,14 +348,18 @@ export class Pipeline {
   setOptions(next: Partial<PipelineOptions>): void {
     const prev = this.opts;
     this.opts = { ...prev, ...next };
-    const rebuild = prev.quality !== this.opts.quality || prev.ao !== this.opts.ao || prev.renderScale !== this.opts.renderScale;
+    const rebuild = prev.quality !== this.opts.quality || prev.ao !== this.opts.ao || prev.renderScale !== this.opts.renderScale || prev.antialias !== this.opts.antialias;
     if (rebuild) this.build();
     else {
       this.outline.enabled = this.opts.outlines;
       this.bloom.enabled = this.opts.bloom;
       this.grade.mat.uniforms.uGrain.value = this.opts.filmGrain ? 0.035 : 0;
+      this.flareScale = this.opts.lensFlare === false ? 0 : 1;
     }
   }
+
+  /** 0 disables the sun flare (multiplies uSunVis set by the game each frame) */
+  flareScale = 1;
 
   size(): { w: number; h: number } {
     const dprCap = this.opts.quality === 'ultra' ? 2 : this.opts.quality === 'high' ? 1.5 : 1;

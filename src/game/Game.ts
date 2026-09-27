@@ -131,6 +131,7 @@ export class Game {
     this.sunDir = this.world.sunDir.clone();
     this.effects = new Effects(this.world, this.camera, this.settings.quality);
     this.world.scene.add(this.effects.group);
+    this.effects.setParticles(this.settings.particles ?? 'high');
     this.combat = new Combat(this);
     this.abilities = new Abilities(this);
     this.summons = new Summons(this);
@@ -1157,6 +1158,7 @@ export class Game {
       audio.setListener(cam.position, _v.set(0, 0, -1).applyQuaternion(cam.quaternion), _w.set(0, 1, 0).applyQuaternion(cam.quaternion));
       this.updateLoops(me);
       this.updateGrade(me, dt);
+      this.updateMotionBlur(dt);
     }
     this.effects.update(dt);
     this.world.update(dt, cam.position, me ? me.body.pos : cam.position, 1);
@@ -1165,6 +1167,8 @@ export class Game {
   }
   private adsBlend = 0;
   private camRoll = 0;
+  private prevCamQ = new THREE.Quaternion();
+  private motion = new THREE.Vector2();
 
   /** grapple cable from the wrist launcher to the anchor */
   private updateRope(f: Fighter): void {
@@ -1203,6 +1207,31 @@ export class Game {
     audio.setMuffle(alive ? Math.max(me.suffocating ? 0.7 : 0, (1 - me.oxygen / 100) * 0.4, this.effects.flash * 0.8) : 0.6);
   }
 
+  /** camera-rotation motion blur: screen-space velocity of the view over ~half a frame */
+  private updateMotionBlur(dt: number): void {
+    const u = this.pipe.gradeUniforms.uMotion.value as THREE.Vector2;
+    const cam = this.camera;
+    if (!this.settings.motionBlur || dt <= 0) {
+      u.set(0, 0);
+      this.prevCamQ.copy(cam.quaternion);
+      return;
+    }
+    // previous forward vector expressed in the current camera frame → uv delta
+    const f = _v.set(0, 0, -1).applyQuaternion(this.prevCamQ).applyQuaternion(_q.copy(cam.quaternion).invert());
+    this.prevCamQ.copy(cam.quaternion);
+    if (f.z > -0.2) {
+      u.set(0, 0);
+      return;
+    }
+    const th = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2);
+    const dx = f.x / -f.z / (th * cam.aspect) * 0.5;
+    const dy = f.y / -f.z / th * 0.5;
+    // shutter ~ 1/2 frame at 60 fps, independent of the real frame time
+    const k = Math.min(1, (1 / 120) / dt);
+    this.motion.set(THREE.MathUtils.clamp(dx * k, -0.035, 0.035), THREE.MathUtils.clamp(dy * k, -0.035, 0.035));
+    u.copy(this.motion.lengthSq() < 1e-6 ? this.motion.set(0, 0) : this.motion);
+  }
+
   private updateGrade(me: Fighter, dt: number): void {
     const u = this.pipe.gradeUniforms;
     const hp = me.health / me.maxHealth;
@@ -1224,7 +1253,7 @@ export class Game {
       const hit = this.world.physics.raycast(this.camera.position, this.sunDir, 600);
       vis = hit ? 0 : 1;
     }
-    u.uSunVis.value += (vis * 0.8 - u.uSunVis.value) * Math.min(1, dt * 8);
+    u.uSunVis.value += (vis * 0.8 * this.pipe.flareScale - u.uSunVis.value) * Math.min(1, dt * 8);
     (u.uSunPos.value as THREE.Vector2).set(sp.x * 0.5 + 0.5, sp.y * 0.5 + 0.5);
   }
 

@@ -18,9 +18,13 @@ const cache = new Map<string, PbrSet>();
 let SIZE = 512;
 let ANISO = 8;
 
-export function setTextureQuality(size: number, aniso: number): void {
+/** Returns true when the resolution changed (cached sets are dropped and regenerate on demand). */
+export function setTextureQuality(size: number, aniso: number): boolean {
+  if (size === SIZE && aniso === ANISO) return false;
   SIZE = size;
   ANISO = aniso;
+  cache.clear();
+  return true;
 }
 
 class Field {

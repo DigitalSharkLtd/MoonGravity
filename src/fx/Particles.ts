@@ -121,6 +121,9 @@ export class ParticleSystem {
   private geo: THREE.InstancedBufferGeometry;
   ground: ((x: number, z: number) => number) | null = null;
 
+  /** 0..1 fraction of requested particles actually spawned (graphics setting) */
+  density = 1;
+
   constructor(max: number, additive: boolean) {
     this.max = max;
     this.pos = new Float32Array(max * 3);
@@ -200,6 +203,8 @@ export class ParticleSystem {
   }
 
   spawn(s: ParticleSpec): void {
+    // density setting thins out small particles; big flashes / glows always show
+    if (this.density < 1 && s.size0 < 1 && Math.random() > this.density) return;
     let i: number;
     if (this.count < this.max) i = this.count++;
     else i = Math.floor(Math.random() * this.max); // overwrite a random one when saturated

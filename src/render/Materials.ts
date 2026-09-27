@@ -123,6 +123,11 @@ function cloneRepeat(t: THREE.Texture, r: number): THREE.Texture {
   return c;
 }
 
+/** drop cached materials (after a texture-quality change: new ones pick up the new texture sets) */
+export function clearMaterialCache(): void {
+  cache.clear();
+}
+
 export function pbr(key: string, o: PbrOpts): LitMat {
   const hit = cache.get(key);
   if (hit) return hit;

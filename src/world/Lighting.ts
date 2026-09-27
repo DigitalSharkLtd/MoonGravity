@@ -82,6 +82,15 @@ export class Lighting {
     scene.environmentIntensity = 0.55;
   }
 
+  /**
+   * Graphics setting: image-based reflections. Off keeps a dim diffuse IBL and lifts the
+   * hemisphere fill so the overall exposure stays the same, but metals / visors lose the sky.
+   */
+  setReflections(on: boolean): void {
+    this.scene.environmentIntensity = on ? 0.55 : 0.22;
+    this.hemi.intensity = on ? 0.32 : 0.5;
+  }
+
   private setupMaterial(m: THREE.Material): void {
     if (!this.csm || (m as THREE.Material & { userData: { csm?: boolean } }).userData.csm) return;
     const mine = (m.userData.baseOBC as typeof m.onBeforeCompile | undefined) ?? m.onBeforeCompile;

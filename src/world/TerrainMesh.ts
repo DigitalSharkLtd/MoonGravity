@@ -72,11 +72,11 @@ export class TerrainMesh {
     tDetailN: { value: null as THREE.Texture | null },
   };
 
-  constructor(data: TerrainData, def: MapDef) {
+  constructor(data: TerrainData, def: MapDef, detail = true) {
     this.data = data;
     const base = new THREE.Color(def.tint);
     this.material = new THREE.MeshStandardMaterial({ color: base, vertexColors: true, roughness: 0.97, metalness: 0 });
-    this.patchMaterial(this.material, true);
+    this.patchMaterial(this.material, detail);
     const hf = data.hf;
     for (let j0 = 0; j0 < hf.nz - 1; j0 += CHUNK) {
       for (let i0 = 0; i0 < hf.nx - 1; i0 += CHUNK) {

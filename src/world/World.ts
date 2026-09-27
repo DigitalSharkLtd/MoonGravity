@@ -27,7 +27,7 @@ export class World {
   /** build phase timings (ms) for diagnostics */
   timings: Record<string, number> = {};
 
-  constructor(mapId: MapId, opts: { quality: Quality; shadows: ShadowMode; renderer: THREE.WebGLRenderer; camera: THREE.PerspectiveCamera }) {
+  constructor(mapId: MapId, opts: { quality: Quality; shadows: ShadowMode; renderer: THREE.WebGLRenderer; camera: THREE.PerspectiveCamera; terrainDetail?: boolean }) {
     const quality = opts.quality;
     const def = (this.def = structuredClone(MAPS[mapId]));
     let tm = performance.now();
@@ -38,7 +38,7 @@ export class World {
     };
     this.terrainData = generateTerrain(def);
     lap('terrainGen');
-    this.terrain = new TerrainMesh(this.terrainData, def);
+    this.terrain = new TerrainMesh(this.terrainData, def, opts.terrainDetail ?? true);
     lap('terrainMesh');
     this.scene.add(this.terrain.group);
     this.sunDir = dirFromAngles(def.sun.azimuth, def.sun.elevation);

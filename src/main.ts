@@ -2,6 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { Pipeline, PipelineOptions } from './render/Pipeline';
 import { setTextureQuality } from './render/TextureGen';
+import { clearMaterialCache } from './render/Materials';
 import { World } from './world/World';
 import { Input } from './core/Input';
 import { Game } from './game/Game';
@@ -28,11 +29,17 @@ let settings: Settings = loadSettings();
 let profile: Profile = loadProfile();
 if (!settings.playerName) settings.playerName = profile.name;
 setGameLang(settings.language);
-setTextureQuality(settings.quality === 'ultra' ? 1024 : settings.quality === 'low' ? 256 : 512, settings.quality === 'low' ? 2 : 8);
 
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 6000);
 const input = new Input(canvas);
-const pipeOpts = (s: Settings): PipelineOptions => ({ quality: s.quality, renderScale: s.renderScale, ao: s.ambientOcclusion, bloom: s.bloom, outlines: s.outlines, filmGrain: s.filmGrain });
+const pipeOpts = (s: Settings): PipelineOptions => ({ quality: s.quality, renderScale: s.renderScale, ao: s.ambientOcclusion, bloom: s.bloom, outlines: s.outlines, filmGrain: s.filmGrain, antialias: s.antialias, lensFlare: s.lensFlare });
+
+/** heavy setting: procedural texture resolution (takes effect for newly built worlds / heroes) */
+function applyTextureQuality(s: Settings): void {
+  const q = s.textureQuality ?? 'medium';
+  if (setTextureQuality(q === 'low' ? 256 : q === 'high' ? 1024 : 512, q === 'low' ? 2 : q === 'high' ? 16 : 8)) clearMaterialCache();
+}
+applyTextureQuality(settings);
 const pipe = new Pipeline(canvas, new THREE.Scene(), camera, new THREE.Scene(), camera, pipeOpts(settings));
 const hud = new Hud(hudRoot, settings);
 hud.show(false);
@@ -90,7 +97,9 @@ async function ensureWorld(map: MapId, title: string): Promise<World> {
   menu.showLoading(title, 0.35);
   await nextFrame();
   const t0 = performance.now();
-  world = new World(map, { quality: settings.quality, shadows: settings.shadows, renderer: pipe.renderer, camera });
+  applyTextureQuality(settings);
+  world = new World(map, { quality: settings.quality, shadows: settings.shadows, renderer: pipe.renderer, camera, terrainDetail: settings.terrainDetail });
+  world.lighting.setReflections(settings.reflections);
   worldMap = map;
   worldDirty = false;
   console.info(`[world] ${map} built in ${Math.round(performance.now() - t0)} ms`);
@@ -323,13 +332,19 @@ const cb: MenuCallbacks = {
   onJoinRoom: (roomId, hero) => void playOnline('war4v4', hero, roomId),
   onCreateRoom: (mode, hero) => void playOnline(mode, hero, 'create'),
   onSettingsChanged: (s) => {
+    const prev = settings;
     settings = s;
     saveSettings(s);
     setGameLang(s.language);
     pipe.setOptions(pipeOpts(s));
     applyAudioSettings(s);
     hud.setSettings(s);
-    if (game) game.settings = s;
+    world?.lighting.setReflections(s.reflections);
+    if (prev.textureQuality !== s.textureQuality || prev.terrainDetail !== s.terrainDetail || prev.shadows !== s.shadows) worldDirty = true; // rebuilt for the next match
+    if (game) {
+      game.settings = s;
+      game.effects.setParticles(s.particles);
+    }
   },
   onProfileChanged: (p) => {
     profile = p;

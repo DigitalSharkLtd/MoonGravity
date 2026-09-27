@@ -76,6 +76,13 @@ export class Effects {
   private sphereGeo = new THREE.SphereGeometry(1, 24, 16);
   private ringGeo = new THREE.RingGeometry(0.85, 1, 64);
 
+  /** graphics setting: particle density */
+  setParticles(level: 'low' | 'medium' | 'high'): void {
+    const d = level === 'low' ? 0.4 : level === 'medium' ? 0.7 : 1;
+    this.add.density = d;
+    this.alpha.density = d;
+  }
+
   constructor(world: World, camera: THREE.Camera, quality: 'low' | 'medium' | 'high' | 'ultra') {
     this.world = world;
     this.camera = camera;

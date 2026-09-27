@@ -437,6 +437,7 @@ const cb: MenuCallbacks = {
     settings = s;
     saveSettings(s);
     setGameLang(s.language);
+    if (prev.language !== s.language) game?.relocalize(); // bot names follow the language at once
     pipe.setOptions(pipeOpts(s));
     applyAudioSettings(s);
     hud.setSettings(s);

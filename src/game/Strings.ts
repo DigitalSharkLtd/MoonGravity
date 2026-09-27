@@ -43,9 +43,12 @@ const S: Record<string, { ru: string; en: string }> = {
   ultShort: { ru: 'ульта', en: 'ult' },
 };
 
-let lang: Lang = 'ru';
+let lang: Lang = 'en';
 export function setGameLang(l: Lang): void {
   lang = l;
+}
+export function gameLang(): Lang {
+  return lang;
 }
 export function gs(key: string, vars?: Record<string, string | number>): string {
   const e = S[key];

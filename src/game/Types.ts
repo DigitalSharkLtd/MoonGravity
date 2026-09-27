@@ -189,7 +189,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   version: 1,
   playerName: '',
-  language: 'ru',
+  language: 'en', // English by default; RU/EN switch applies instantly (menu, HUD, game texts, bot names)
   quality: 'high',
   renderScale: 1,
   fov: 80,

@@ -3,11 +3,11 @@ import type { AbilityId, Action, BotDifficulty, HeroId, Lang, MapId, ModeId, Pas
 // ---------------------------------------------------------------------------
 // language state
 
-let lang: Lang = 'ru';
+let lang: Lang = 'en';
 const listeners = new Set<(l: Lang) => void>();
 
 export function setLang(l: Lang): void {
-  if (l !== 'ru' && l !== 'en') l = 'ru';
+  if (l !== 'ru' && l !== 'en') l = 'en';
   if (l === lang) return;
   lang = l;
   if (typeof document !== 'undefined') document.documentElement.lang = l;

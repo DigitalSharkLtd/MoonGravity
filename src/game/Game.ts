@@ -13,7 +13,7 @@ import { HeroModel } from '../entities/HeroModel';
 import { Viewmodel } from './Viewmodel';
 import { updateVitals, leakRate } from './Vitals';
 import { NetBridge } from './NetBridge';
-import { gs, setGameLang } from './Strings';
+import { gameLang, gs, setGameLang } from './Strings';
 import { MODES, HEROES, ModeId, HeroId, HeroDef, Settings, HudState, HudEvent, ModeInfo, ScreenMarker, Blip, Action, WeaponId, AbilityId, MatchResult } from './Types';
 import { WEAPONS, adsCapable, coneOf } from '../weapons/WeaponDefs';
 import { audio, Sfx, Loop } from '../audio/Audio';
@@ -62,7 +62,13 @@ const SERVITOR_DEF: HeroDef = {
 const SERVITOR_TOUGH_DEF: HeroDef = { ...SERVITOR_DEF, health: 190, suit: 90 };
 const GRAPPLE_RANGE = 42;
 const GRAPPLE_CD = 18; // (was 7: the hook dominated movement)
-const BOT_NAMES = ['Орбита', 'Кратер', 'Селен', 'Апогей', 'Перигей', 'Реголит', 'Тихо', 'Коперник', 'Кеплер', 'Аристарх', 'Гриммальди', 'Лангрен', 'Шеклтон', 'Армстронг', 'Гагарин', 'Терешкова'];
+/** bot call signs [ru, en]: bots are renamed when the language changes (relocalize) */
+const BOT_NAMES: [string, string][] = [
+  ['Орбита', 'Orbit'], ['Кратер', 'Crater'], ['Селен', 'Selen'], ['Апогей', 'Apogee'], ['Перигей', 'Perigee'], ['Реголит', 'Regolith'],
+  ['Тихо', 'Tycho'], ['Коперник', 'Copernicus'], ['Кеплер', 'Kepler'], ['Аристарх', 'Aristarchus'], ['Гриммальди', 'Grimaldi'], ['Лангрен', 'Langrenus'],
+  ['Шеклтон', 'Shackleton'], ['Армстронг', 'Armstrong'], ['Гагарин', 'Gagarin'], ['Терешкова', 'Tereshkova'],
+];
+const botLabel = (i: number): string => '[BOT] ' + (BOT_NAMES[i]?.[gameLang() === 'ru' ? 0 : 1] ?? (gameLang() === 'ru' ? 'Луноход' : 'Rover'));
 
 /**
  * One match: owns the fighters and all simulation systems for a world.
@@ -83,6 +89,16 @@ export class Game {
   /** chosen build per hero for the local player (from the profile) */
   builds: Partial<Record<HeroId, string>> = {};
   private ropes = new Map<number, THREE.Mesh>();
+  /** call-sign index per bot (so the name follows the language) */
+  private botNameIdx = new Map<number, number>();
+
+  /** language switched mid-match: rename our bots (clients get names from their host) */
+  relocalize(): void {
+    for (const f of this.fighters) {
+      const i = this.botNameIdx.get(f.id);
+      if (i !== undefined) f.name = botLabel(i);
+    }
+  }
   private ropeGeo = new THREE.CylinderGeometry(0.012, 0.012, 1, 5, 1, true).translate(0, 0.5, 0).rotateX(Math.PI / 2);
   private ropeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xbfefff).multiplyScalar(2.2), toneMapped: false });
   match: Match;
@@ -248,11 +264,12 @@ export class Game {
         const c1 = this.players.filter((f) => f.team === 1).length;
         team = c0 <= c1 ? 0 : 1;
       }
-      const used = new Set(this.players.map((f) => f.name));
-      const pool = BOT_NAMES.filter((x) => !used.has('[BOT] ' + x));
-      const name = '[BOT] ' + (pool[Math.floor(Math.random() * pool.length)] ?? 'Луноход');
+      const used = new Set(this.botNameIdx.values());
+      const pool = BOT_NAMES.map((_, i) => i).filter((i) => !used.has(i));
+      const idx = pool[Math.floor(Math.random() * pool.length)] ?? -1;
       const hero = this.bots.pickHero(team);
-      const bot = this.addFighter(name, team, hero, 'bot', 'host');
+      const bot = this.addFighter(botLabel(idx), team, hero, 'bot', 'host');
+      this.botNameIdx.set(bot.id, idx);
       const builds = bot.def.builds;
       bot.applyBuild(builds[Math.floor(Math.random() * builds.length)]?.id ?? '');
     }
@@ -275,6 +292,7 @@ export class Game {
       f.model.dispose();
     }
     this.bots?.forget(f.id);
+    this.botNameIdx.delete(f.id);
     const rope = this.ropes.get(f.id);
     if (rope) {
       this.world.scene.remove(rope);

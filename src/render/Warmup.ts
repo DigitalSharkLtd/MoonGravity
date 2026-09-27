@@ -21,6 +21,9 @@ export async function warmMatchShaders(g: Game, renderer: THREE.WebGLRenderer, s
   tmp.add(new HeroModel('forge', 0x4aa8ff, 'servitor').root);
   for (const id of Object.keys(WEAPONS) as WeaponId[]) tmp.add(buildWeaponModel(id, 0x4aa8ff).group);
   for (const k of DEVICES) tmp.add(buildSummonMesh(k, 0xff5a4a).mesh);
+  // first-person arms + the local hero's weapon (normally built on the first spawned frame)
+  const me = g.local;
+  if (me) g.viewmodel.setWeapon(me.activeWeapon.id, new THREE.Color(me.def.color).getHex());
   try {
     await renderer.compileAsync(tmp, camera, scene);
     await renderer.compileAsync(scene, camera);

@@ -98,7 +98,7 @@ export class NetGame {
   }
 
   /** Quick match / join / create. Clients resolve once the host's welcome arrives. */
-  static async connect(opts: { mode: ModeId; name: string; hero: HeroId; build?: string; join?: string; onStatus?: (s: string) => void }): Promise<NetGame> {
+  static async connect(opts: { mode: ModeId; name: string; hero: HeroId; build?: string; join?: string; anyMode?: boolean; onStatus?: (s: string) => void }): Promise<NetGame> {
     const cap = MODES[opts.mode].capacity;
     if (opts.join === 'create') {
       const session = await hostRoom({ mode: opts.mode, name: opts.name, capacity: cap });
@@ -113,7 +113,7 @@ export class NetGame {
       await ng.bindClient(session);
       return ng;
     }
-    const res = await quickMatch({ mode: opts.mode, name: opts.name, capacity: cap, onStatus: opts.onStatus });
+    const res = await quickMatch({ mode: opts.mode, name: opts.name, capacity: cap, anyMode: opts.anyMode, onStatus: opts.onStatus });
     if (res.role === 'host') {
       const ng = new NetGame('host', opts.mode, opts.name, opts.hero, opts.build);
       ng.bindHost(res.session);

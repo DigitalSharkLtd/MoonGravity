@@ -290,7 +290,7 @@ function openHeroSelect(): void {
 // ---------------------------------------------------------------------------
 // online play (listen server)
 
-async function playOnline(mode: ModeId, hero: HeroId, join?: string): Promise<void> {
+async function playOnline(mode: ModeId, hero: HeroId, join?: string, anyMode = false): Promise<void> {
   const cancel = { v: false };
   const onCancel = () => {
     cancel.v = true;
@@ -300,7 +300,7 @@ async function playOnline(mode: ModeId, hero: HeroId, join?: string): Promise<vo
   };
   menu.showMatchmaking('searching', onCancel);
   try {
-    const conn = await NetGame.connect({ mode, name: settings.playerName || profile.name, hero, build: selectedBuild(profile, hero), join, onStatus: (s) => !cancel.v && menu.showMatchmaking(s, onCancel) });
+    const conn = await NetGame.connect({ mode, name: settings.playerName || profile.name, hero, build: selectedBuild(profile, hero), join, anyMode, onStatus: (s) => !cancel.v && menu.showMatchmaking(s, onCancel) });
     if (cancel.v) {
       conn.close();
       return;
@@ -308,6 +308,11 @@ async function playOnline(mode: ModeId, hero: HeroId, join?: string): Promise<vo
     net = conn;
     await startMatch((conn.mode as ModeId) || mode, hero, conn.role, conn);
     if (conn.role === 'host' && conn.joinLink) menu.toast(conn.joinLink, 'good');
+    // auto-start on site entry has no user gesture, so the browser refuses the mouse lock until a click
+    if (anyMode)
+      setTimeout(() => {
+        if (state === 'match' && !input.locked && !menu.visible) menu.toast(settings.language === 'ru' ? 'Кликните по экрану, чтобы играть' : 'Click the screen to play', 'good');
+      }, 600);
   } catch (e) {
     console.warn('online play failed', e);
     if (cancel.v) return;
@@ -382,7 +387,8 @@ const cb: MenuCallbacks = {
   },
 };
 const menu = new MenuSystem(uiRoot, cb, settings, profile);
-void lobbyAvailable().then((ok) => menu.setNetStatus({ lobby: ok }));
+const lobbyOk = lobbyAvailable();
+void lobbyOk.then((ok) => menu.setNetStatus({ lobby: ok }));
 
 // ---------------------------------------------------------------------------
 // main loop
@@ -427,6 +433,13 @@ void (async () => {
   menu.showMain();
   const join = parseJoinLink();
   if (join) void playOnline('war4v4', profile.selectedHero, join);
+  else if (!new URLSearchParams(location.search).has('menu')) {
+    // entering the site = entering the server: join the fullest open room (any mode) or become its
+    // host; later visitors land in this room until it is full. `?menu` opens the menu instead.
+    void lobbyOk.then((ok) => {
+      if (ok && state === 'menu' && menu.screen === 'main') void playOnline('war4v4', profile.selectedHero, undefined, true);
+    });
+  }
   // debug / automated test handle
   (window as unknown as Record<string, unknown>).__mg = {
     get game() {

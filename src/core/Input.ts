@@ -67,7 +67,12 @@ export class Input {
     const c = this.canvas as HTMLElement & { requestPointerLock: (o?: unknown) => Promise<void> | void };
     try {
       const r = c.requestPointerLock({ unadjustedMovement: true });
-      if (r && typeof (r as Promise<void>).catch === 'function') (r as Promise<void>).catch(() => c.requestPointerLock());
+      // without a user gesture (auto-start on site entry) the lock is refused: the next click on the canvas locks
+      if (r && typeof (r as Promise<void>).catch === 'function')
+        (r as Promise<void>).catch(() => {
+          const r2 = c.requestPointerLock();
+          if (r2 && typeof (r2 as Promise<void>).catch === 'function') (r2 as Promise<void>).catch(() => undefined);
+        });
     } catch {
       c.requestPointerLock();
     }

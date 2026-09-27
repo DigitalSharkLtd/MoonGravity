@@ -34,7 +34,7 @@
  *   POST heartbeat {roomId, hostToken, players, capacity?, name?}
  *                                                 → {ok:true, ttlMs}   | 404 not_found (expired → resume)
  *   POST close {roomId, hostToken}                → {ok:true}          (idempotent)
- *   GET  find?mode=&version=&exclude=id1,id2      → {room: PublicRoom | null}
+ *   GET  find?mode=&version=&exclude=id1,id2      → {room: PublicRoom | null}  (mode optional = any)
  *        Only fresh rooms of that mode AND version with players < capacity; the fullest room
  *        wins (ties → oldest), so rooms fill up one by one.
  *   GET  room?id=                                 → {room: PublicRoom} | 404 not_found
@@ -438,11 +438,11 @@ export function createLobby(storage: LobbyStorage, opts: LobbyOptions = {}): Lob
   }
 
   async function find(q: URLSearchParams, t: number) {
-    const mode = queryString(q, 'mode', RE_MODE)!;
+    const mode = queryString(q, 'mode', RE_MODE, true); // omitted → any mode (auto-join on site entry)
     const version = queryString(q, 'version', RE_VERSION)!;
     const exclude = new Set((q.get('exclude') ?? '').split(',').filter((s) => RE_ROOM_ID.test(s)));
     const rooms = (await scanRooms(t)).filter(
-      (r) => r.mode === mode && r.version === version && r.players < r.capacity && !exclude.has(r.roomId),
+      (r) => (!mode || r.mode === mode) && r.version === version && r.players < r.capacity && !exclude.has(r.roomId),
     );
     rooms.sort((a, b) => b.players - a.players || a.created - b.created);
     return { room: rooms.length ? publicRoom(rooms[0]!) : null };

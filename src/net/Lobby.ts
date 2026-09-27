@@ -221,7 +221,7 @@ export async function listRooms(mode?: NetMode): Promise<RoomInfo[]> {
   }));
 }
 
-async function findRoom(mode: NetMode, exclude: string[]): Promise<ServerRoom | null> {
+async function findRoom(mode: NetMode | undefined, exclude: string[]): Promise<ServerRoom | null> {
   const r = await api<{ room: ServerRoom | null }>('GET', `find?${q({ mode, version: NET_VERSION, exclude: exclude.join(',') })}`);
   return r.room ?? null;
 }
@@ -582,11 +582,25 @@ export async function joinRoom(roomId: string, opts: { name: string; timeoutMs?:
 
 // ───────────────────────────── quick match ─────────────────────────────
 
+/** A slow network / busy tab must not throw the player into a bot match: retry the lookup. */
+async function findRoomRetry(mode: NetMode | undefined, exclude: string[]): Promise<ServerRoom | null> {
+  for (let i = 0; ; i++) {
+    try {
+      return await findRoom(mode, exclude);
+    } catch (e) {
+      if (i >= 2) throw e;
+      await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+    }
+  }
+}
+
 /** Find the fullest non-full room of this mode and join it; if none (or all joins fail) → host a new room. */
 export async function quickMatch(opts: {
   mode: NetMode;
   name: string;
   capacity: number;
+  /** join an open room of any mode (the room's host decides the mode); host `mode` if none */
+  anyMode?: boolean;
   onStatus?: (s: string) => void;
 }): Promise<{ role: 'host'; session: HostSession } | { role: 'client'; session: ClientSession }> {
   const status = (s: string) => {
@@ -603,7 +617,7 @@ export async function quickMatch(opts: {
     status(attempt === 0 ? 'searching' : 'searching_again');
     let room: ServerRoom | null;
     try {
-      room = await findRoom(opts.mode, tried);
+      room = await findRoomRetry(opts.anyMode ? undefined : opts.mode, tried);
     } catch (e) {
       if (errCode(e) !== 'lobby_unavailable') console.warn('[net] quickMatch: find failed:', errCode(e));
       throw new Error('lobby_unavailable');
@@ -612,7 +626,8 @@ export async function quickMatch(opts: {
     tried.push(room.roomId);
     status(`joining:${room.name}`);
     try {
-      const session = await joinRoom(room.roomId, { name: opts.name, timeoutMs: 12000 });
+      // patient: a failed join splits players into separate rooms, which is worse than a short wait
+      const session = await joinRoom(room.roomId, { name: opts.name, timeoutMs: 25000 });
       status('connected');
       return { role: 'client', session };
     } catch (e) {

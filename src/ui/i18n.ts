@@ -1,4 +1,4 @@
-import type { AbilityId, Action, BotDifficulty, HeroId, Lang, MapId, ModeId, Quality, RibbonId, Role, WeaponId } from '../game/Types';
+import type { AbilityId, Action, BotDifficulty, HeroId, Lang, MapId, ModeId, PassiveId, Quality, RibbonId, Role, RolePassiveId, WeaponId } from '../game/Types';
 
 // ---------------------------------------------------------------------------
 // language state
@@ -131,6 +131,9 @@ const RU = {
   'heroes.charges': '{n} заряда',
   'heroes.ultCost': '{n} ед. заряда',
   'heroes.sealants': 'Наборы герметика: {n}',
+  'heroes.signature': 'Пассивный навык',
+  'heroes.rolePerk': 'Бонус роли',
+  'heroes.skill': 'Навык оружия',
   'heroes.select': 'Выбрать',
   'heroes.selected': 'Выбран',
   'heroes.yourStats': 'Ваша статистика',
@@ -408,6 +411,8 @@ const RU = {
   'hud.noAmmo': 'Нет патронов',
   'hud.lowAmmo': 'Перезарядка',
   'hud.charge': 'Заряд',
+  'hud.heat': 'Нагрев',
+  'hud.alt': 'Навык',
   'hud.eliminatedBy': 'Вас устранил',
   'hud.env.suffocation': 'Вы задохнулись',
   'hud.env.fall': 'Смертельное падение',
@@ -653,6 +658,9 @@ const EN: Record<StrKey, string> = {
   'heroes.charges': '{n} charges',
   'heroes.ultCost': '{n} charge pts',
   'heroes.sealants': 'Sealant kits: {n}',
+  'heroes.signature': 'Passive',
+  'heroes.rolePerk': 'Role perk',
+  'heroes.skill': 'Weapon skill',
   'heroes.select': 'Select',
   'heroes.selected': 'Selected',
   'heroes.yourStats': 'Your stats',
@@ -920,6 +928,8 @@ const EN: Record<StrKey, string> = {
   'hud.noAmmo': 'No ammo',
   'hud.lowAmmo': 'Reload',
   'hud.charge': 'Charge',
+  'hud.heat': 'Heat',
+  'hud.alt': 'Skill',
   'hud.eliminatedBy': 'Eliminated by',
   'hud.env.suffocation': 'You suffocated',
   'hud.env.fall': 'Fatal fall',
@@ -1583,4 +1593,84 @@ export function fmtDateTime(ts: number): string {
   } catch {
     return new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
   }
+}
+
+// ---------------------------------------------------------------------------
+// passives & weapon skills
+
+const PASSIVE_COPY: Record<PassiveId, { name: Bi; desc: Bi }> = {
+  afterburner: {
+    name: { ru: 'Форсаж', en: 'Afterburner' },
+    desc: { ru: 'Ранец заправляется на 60 % быстрее и понемногу восполняет топливо даже в полёте, пока вы не жжёте тягу.', en: 'The jetpack refuels 60 % faster and trickles fuel back even mid-air while you are not thrusting.' },
+  },
+  blastproof: {
+    name: { ru: 'Взрывостойкий', en: 'Blastproof' },
+    desc: { ru: 'Собственные взрывы не наносят урона, а их ударная волна подбрасывает сильнее — прыжки на гранатах.', en: 'Your own blasts deal no damage to you and push you harder — grenade-jump freely.' },
+  },
+  spotter: {
+    name: { ru: 'Метка снайпера', en: 'Spotter' },
+    desc: { ru: 'Попадание в голову подсвечивает цель для всей команды на 3 с.', en: 'Headshots reveal the target to your whole team for 3 s.' },
+  },
+  backstab: {
+    name: { ru: 'Удар в спину', en: 'Backstab' },
+    desc: { ru: '+25 % урона по врагам, которые стоят к вам спиной.', en: '+25 % damage against enemies facing away from you.' },
+  },
+  moonstep: {
+    name: { ru: 'Лунный шаг', en: 'Moon Step' },
+    desc: { ru: 'Второй прыжок в воздухе: толчок двигателями скафандра в сторону движения.', en: 'A second jump in mid-air: a suit-thruster kick in your movement direction.' },
+  },
+  fusion: {
+    name: { ru: 'Термоядерная броня', en: 'Fusion Plating' },
+    desc: { ru: 'Пока скафандр цел (не меньше 50 %), весь входящий урон снижен на 20 %.', en: 'While your suit holds (50 % or more), all incoming damage is reduced by 20 %.' },
+  },
+  lifelink: {
+    name: { ru: 'Жизнеобеспечение', en: 'Life-Support Link' },
+    desc: { ru: 'Союзники в 12 м от вас теряют кислород при разгерметизации вдвое медленнее и восстанавливают 4 ед. здоровья в секунду.', en: 'Allies within 12 m leak oxygen half as fast when breached and regenerate 4 HP per second.' },
+  },
+  fieldrepair: {
+    name: { ru: 'Полевой ремонт', en: 'Field Repairs' },
+    desc: { ru: 'Скафандры союзников в 10 м от вас (и ваш) чинятся на 4 % в секунду — утечку можно закрыть, не тратя герметик.', en: 'Suits of allies within 10 m (and yours) repair 4 % per second — breaches close without sealant.' },
+  },
+  dronelink: {
+    name: { ru: 'Связь роя', en: 'Drone Link' },
+    desc: { ru: 'Попадания из винтовки помечают врага на 2,5 с: он виден команде, а ваши дроны и турели наносят ему на 25 % больше урона.', en: 'Rifle hits mark an enemy for 2.5 s: revealed to your team, and your drones and turrets deal 25 % more damage to it.' },
+  },
+};
+
+const ROLE_PASSIVE_COPY: Record<RolePassiveId, { name: Bi; desc: Bi }> = {
+  heavy: { name: { ru: 'Тяжёлый каркас', en: 'Heavy Frame' }, desc: { ru: 'Отбрасывание слабее, замедления действуют вдвое мягче.', en: 'Less knockback; slows are half as strong.' } },
+  medic: { name: { ru: 'Полевая выучка', en: 'Field Medic' }, desc: { ru: 'Здоровье начинает восстанавливаться уже через 3,5 с без урона (вместо 6 с).', en: 'Health regeneration starts after 3.5 s without damage (instead of 6 s).' } },
+  lightstep: { name: { ru: 'Лёгкий шаг', en: 'Light Step' }, desc: { ru: 'Шаги почти не слышны, по стенам на магнитах вы ходите на 25 % быстрее, падения безопаснее.', en: 'Near-silent footsteps, 25 % faster mag-boot walking, safer falls.' } },
+  bloodrush: { name: { ru: 'Кураж', en: 'Bloodrush' }, desc: { ru: 'Устранение восстанавливает 50 ед. здоровья, управление в воздухе лучше.', en: 'Eliminations restore 50 HP; better air control.' } },
+  steady: { name: { ru: 'Твёрдая рука', en: 'Steady Hands' }, desc: { ru: 'Отдача и разброс на 20 % меньше, перезарядка на 15 % быстрее.', en: '20 % less recoil and bloom, 15 % faster reloads.' } },
+  salvage: { name: { ru: 'Утилизация', en: 'Salvage' }, desc: { ru: 'Уничтоженная вражеская техника или сервитор восстанавливает 40 ед. здоровья и немного ульты.', en: 'Destroying an enemy device or servitor restores 40 HP and a bit of ultimate charge.' } },
+};
+
+const WEAPON_SKILL: Partial<Record<WeaponId, Bi>> = {
+  pulse: { ru: 'ПКМ — прицел. Первый выстрел после паузы в прицеле точен и бьёт на 15 % сильнее; отдачу тяните вниз.', en: 'RMB — aim. The first shot from rest while aiming is pin-point and hits 15 % harder; pull down against the climb.' },
+  rail: { ru: 'ПКМ — оптика и заряд (0,9 с). Полный заряд: 100 в тело, 230 в голову. Без заряда — лишь 42 %.', en: 'RMB — scope and charge (0.9 s). Full charge: 100 body, 230 head. Uncharged shots deal only 42 %.' },
+  plasma: { ru: 'ПКМ — сфокусированный плазменный заряд (2 ячейки): быстрый выстрел на средней дистанции.', en: 'RMB — focused plasma slug (2 cells): a fast mid-range poke.' },
+  glauncher: { ru: 'ПКМ — дистанционный подрыв всех ваших гранат.', en: 'RMB — remote-detonate all of your grenades.' },
+  sealer: { ru: 'ПКМ — липкий сгусток пены: лужа 5 с лечит союзников и замедляет врагов.', en: 'RMB — sticky foam glob: a 5 s puddle that heals allies and slows enemies.' },
+  twinarc: { ru: 'Статика: каждое 10-е попадание подряд по одной цели разряжается дугой (+20) и перескакивает на соседа.', en: 'Static: every 10th consecutive hit on one target discharges an arc (+20) that jumps to a neighbour.' },
+  blade: { ru: 'Комбо: каждый третий удар подряд — тяжёлый добивающий (×1,5 урона, шире и дальше).', en: 'Combo: every third swing in a row is a heavy finisher (×1.5 damage, wider and longer).' },
+  riveter: { ru: 'Без перезарядки: 32 заклёпки до перегрева (2 с остывания). R — досрочный сброс тепла.', en: 'No reloads: 32 rivets to overheat (2 s lockout). R vents the heat early.' },
+  burst: { ru: '«Трель»: если два первых выстрела очереди попали в одну цель, третий наносит +60 %.', en: '"Trill": if the first two rounds of a burst hit the same target, the third deals +60 %.' },
+};
+
+export function passiveName(id: PassiveId): string {
+  return PASSIVE_COPY[id] ? pick(PASSIVE_COPY[id].name) : id;
+}
+export function passiveDesc(id: PassiveId): string {
+  return PASSIVE_COPY[id] ? pick(PASSIVE_COPY[id].desc) : '';
+}
+export function rolePassiveName(id: RolePassiveId): string {
+  return ROLE_PASSIVE_COPY[id] ? pick(ROLE_PASSIVE_COPY[id].name) : id;
+}
+export function rolePassiveDesc(id: RolePassiveId): string {
+  return ROLE_PASSIVE_COPY[id] ? pick(ROLE_PASSIVE_COPY[id].desc) : '';
+}
+export function weaponSkill(id: WeaponId): string {
+  const b = WEAPON_SKILL[id];
+  return b ? pick(b) : '';
 }

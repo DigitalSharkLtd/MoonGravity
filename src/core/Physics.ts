@@ -269,25 +269,55 @@ export class PhysicsWorld {
     }
   }
 
-  /** Nearest metal surface point to p within maxDist (used by mag-boots). */
-  nearestMetal(p: THREE.Vector3, maxDist: number, outPoint: THREE.Vector3, outNormal: THREE.Vector3, filter?: (n: THREE.Vector3) => boolean): number {
+  /**
+   * Nearest metal surface point to p within maxDist (used by mag-boots).
+   * `prefer`: in concave corners (several surfaces within `slack` of the nearest one) pick the surface
+   * whose normal is most aligned with this direction instead of the marginally nearer one, so the
+   * boots don't flip-flop between the two faces of a corner.
+   */
+  nearestMetal(p: THREE.Vector3, maxDist: number, outPoint: THREE.Vector3, outNormal: THREE.Vector3, filter?: (n: THREE.Vector3) => boolean, prefer?: THREE.Vector3, slack = 0.12): number {
     const list = this.query(p.x - maxDist, p.z - maxDist, p.x + maxDist, p.z + maxDist, p.y - maxDist, p.y + maxDist, this.tmpList);
     let best = Infinity;
+    let bestScore = -Infinity;
+    const cand = this.metalCand;
+    cand.length = 0;
     const pt = new THREE.Vector3();
     const nn = new THREE.Vector3();
     for (const c of list) {
       if (!c.metal || c.noMove) continue;
       const d = this.closest(c, p, pt, nn);
-      if (d < best && d < maxDist) {
-        // derive normal from direction for edge rolling
-        if (filter && !filter(nn)) continue;
-        best = d;
-        outPoint.copy(pt);
-        outNormal.copy(nn);
+      if (d >= maxDist) continue;
+      if (filter && !filter(nn)) continue;
+      if (!prefer) {
+        if (d < best) {
+          best = d;
+          outPoint.copy(pt);
+          outNormal.copy(nn);
+        }
+        continue;
+      }
+      cand.push({ d, p: pt.clone(), n: nn.clone() });
+      if (d < best) best = d;
+    }
+    if (!prefer || !cand.length) return best;
+    let bestD = Infinity;
+    for (const c of cand) {
+      if (c.d > best + slack) continue;
+      // normal from the contact point to the query point (smooth around edges)
+      const dir = _v.copy(p).sub(c.p);
+      const l = dir.length();
+      const al = l > 1e-5 ? dir.dot(prefer) / l : c.n.dot(prefer);
+      const score = al - (c.d - best) * 2;
+      if (score > bestScore) {
+        bestScore = score;
+        bestD = c.d;
+        outPoint.copy(c.p);
+        outNormal.copy(c.n);
       }
     }
-    return best;
+    return bestD;
   }
+  private metalCand: { d: number; p: THREE.Vector3; n: THREE.Vector3 }[] = [];
 
   /** Is point inside any solid (used for spawn checks). */
   pointBlocked(p: THREE.Vector3, r: number): boolean {

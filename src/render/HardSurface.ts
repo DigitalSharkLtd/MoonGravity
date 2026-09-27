@@ -47,7 +47,8 @@ export function outline(pts: P2[], r = 0, seg = 3): THREE.Vector2[] {
     const sy = c[1] + ay * t;
     const ex = c[0] + bx * t;
     const ey = c[1] + by * t;
-    const k = Math.max(1, Math.ceil(((Math.PI - ang) / (Math.PI / 2)) * seg));
+    // fewer segments on tiny fillets (they read as chamfers anyway)
+    const k = Math.max(1, Math.round(((Math.PI - ang) / (Math.PI / 2)) * seg * THREE.MathUtils.clamp(rr / 0.02, 0.34, 1)));
     for (let j = 0; j <= k; j++) {
       const u = j / k;
       const a = (1 - u) * (1 - u);
@@ -82,6 +83,14 @@ export interface ExOpts {
   /** smoothing threshold (rad): faces closer than this share normals */
   crease?: number;
   seg?: number;
+  /** side(): narrow the top by this fraction (sloped flanks, like a machined receiver) */
+  top?: number;
+  /** side(): narrow the bottom by this fraction */
+  bot?: number;
+  /** side(): narrow the front (max forward) end by this fraction */
+  nose?: number;
+  /** side(): narrow the rear (min forward) end by this fraction */
+  tail?: number;
 }
 
 function shapeOf(pts: P2[], o: ExOpts): THREE.Shape {
@@ -110,6 +119,19 @@ function extrude(pts: P2[], depth: number, o: ExOpts): THREE.BufferGeometry {
 export function side(pts: P2[], w: number, o: ExOpts = {}): THREE.BufferGeometry {
   const geo = extrude(pts, w, o);
   geo.rotateY(Math.PI / 2);
+  if (o.top || o.bot || o.nose || o.tail) {
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox!;
+    const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+    const hy = Math.max(1e-6, bb.max.y - bb.min.y);
+    const hz = Math.max(1e-6, bb.max.z - bb.min.z);
+    for (let i = 0; i < pos.count; i++) {
+      const ty = (pos.getY(i) - bb.min.y) / hy; // 0 bottom → 1 top
+      const tz = (bb.max.z - pos.getZ(i)) / hz; // 0 rear → 1 front
+      const k = (1 - (o.top ?? 0) * ty) * (1 - (o.bot ?? 0) * (1 - ty)) * (1 - (o.nose ?? 0) * tz) * (1 - (o.tail ?? 0) * (1 - tz));
+      pos.setX(i, pos.getX(i) * k);
+    }
+  }
   return creased(geo, o.crease ?? 0.7);
 }
 
@@ -140,6 +162,16 @@ export function lathe(pts: [number, number][], seg = 16, o: { phase?: number; cr
   return creased(geo, o.crease ?? (seg <= 8 ? 0.5 : 0.75));
 }
 
+/** lathe around the vertical (Y) axis: pts = (radius, height) */
+export function latheY(pts: [number, number][], seg = 16, o: { phase?: number; crease?: number } = {}): THREE.BufferGeometry {
+  const geo = new THREE.LatheGeometry(
+    pts.map(([r, y]) => new V2(Math.max(0, r), y)),
+    seg,
+    o.phase ?? 0,
+  );
+  return creased(geo, o.crease ?? (seg <= 8 ? 0.5 : 0.75));
+}
+
 /** simple tube along the barrel axis from f0 → f1 (with optional end radius) */
 export function tubeZ(r: number, f0: number, f1: number, seg = 16, r1 = r): THREE.BufferGeometry {
   return lathe(
@@ -151,6 +183,15 @@ export function tubeZ(r: number, f0: number, f1: number, seg = 16, r1 = r): THRE
     ],
     seg,
   );
+}
+
+/** open cylinder band (axis Y) whose UVs tile a square texture around it without stretching (hazard stripes) */
+export function bandGeo(r: number, h: number, seg = 16): THREE.BufferGeometry {
+  const geo = new THREE.CylinderGeometry(r, r, h, seg, 1, true);
+  const tiles = Math.max(1, Math.round((2 * Math.PI * r) / h));
+  const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * tiles);
+  return geo;
 }
 
 const boxCache = new Map<string, THREE.BufferGeometry>();

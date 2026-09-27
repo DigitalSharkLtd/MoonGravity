@@ -1,12 +1,25 @@
-import { HERO_ORDER, HEROES, type AbilityDef, type HeroId } from '../../game/Types';
+import { HERO_ORDER, HEROES, ROLE_PASSIVE, type AbilityDef, type HeroId, type PassiveId } from '../../game/Types';
 import { clear, div, fmtDuration, fmtNum, h, ico, ratio, span } from '../dom';
-import { abilityDesc, abilityName, bi, getLang, heroBio, heroCallsign, heroName, heroTagline, keyLabel, t, weaponDesc, weaponName } from '../i18n';
+import { abilityDesc, abilityName, bi, getLang, heroBio, heroCallsign, heroName, heroTagline, keyLabel, passiveDesc, passiveName, rolePassiveDesc, rolePassiveName, t, weaponDesc, weaponName, weaponSkill } from '../i18n';
 import { ABILITY_ICON, ROLE_COLOR, ROLE_ICON, ROLE_ORDER, UI, WEAPON_ICON } from '../icons';
 import { heroMastery, selectedBuild } from '../Storage';
 import type { MenuCtx, ScreenInst } from './ctx';
 import { buildsEl, gadgetsEl, masteryEl } from './herokit';
 import { heroStage } from './stage';
 import { btn, header, kbd, portrait, roleTag, sectionTitle, stars, statTile } from './widgets';
+
+/** icons for the signature passives (reuse the UI set) */
+const PASSIVE_ICON: Record<PassiveId, string> = {
+  afterburner: UI.jet,
+  blastproof: UI.shieldPlus,
+  spotter: UI.headshot,
+  backstab: UI.eyeOff,
+  moonstep: UI.moon,
+  fusion: ROLE_ICON.tank,
+  lifelink: UI.heart,
+  fieldrepair: UI.gear,
+  dronelink: UI.target,
+};
 
 export function buildHeroes(ctx: MenuCtx): ScreenInst {
   const st = ctx.state;
@@ -109,13 +122,20 @@ export function buildHeroes(ctx: MenuCtx): ScreenInst {
 
     const wIco = div('mg-hd-weapon-ico');
     wIco.innerHTML = WEAPON_ICON[hd.weapon] ?? '';
-    const weapon = div('mg-hd-weapon', wIco, div('mg-hd-weapon-body', div('mg-k', t('heroes.weapon')), div('mg-hd-weapon-name', weaponName(hd.weapon)), div('mg-hd-weapon-desc', weaponDesc(hd.weapon))));
+    const skill = weaponSkill(hd.weapon);
+    const weapon = div(
+      'mg-hd-weapon',
+      wIco,
+      div('mg-hd-weapon-body', div('mg-k', t('heroes.weapon')), div('mg-hd-weapon-name', weaponName(hd.weapon)), div('mg-hd-weapon-desc', weaponDesc(hd.weapon)), skill ? div('mg-hd-weapon-desc', span('mg-k', t('heroes.skill') + ': '), skill) : null),
+    );
 
     const abil = div(
       'mg-hd-abils',
       abilityRow(hd.ability1, keys.ability1, false),
       abilityRow(hd.ability2, keys.ability2, false),
       abilityRow(hd.ultimate, keys.ultimate, true, hd.ultCost),
+      div('mg-abil is-kit', div('mg-abil-ico', ico(PASSIVE_ICON[hd.passive] ?? UI.star)), div('mg-abil-body', div('mg-abil-name', passiveName(hd.passive), span('mg-abil-ult', t('heroes.signature'))), div('mg-abil-desc', passiveDesc(hd.passive)))),
+      div('mg-abil is-kit', div('mg-abil-ico', ico(ROLE_ICON[hd.role])), div('mg-abil-body', div('mg-abil-name', rolePassiveName(ROLE_PASSIVE[hd.role]), span('mg-abil-ult', t('heroes.rolePerk'))), div('mg-abil-desc', rolePassiveDesc(ROLE_PASSIVE[hd.role])))),
       div('mg-abil is-kit', div('mg-abil-ico', ico(UI.sealant), kbd(keyLabel(keys.sealant), 'mg-abil-key')), div('mg-abil-body', div('mg-abil-name', t('heroes.passive')), div('mg-abil-desc', t('heroes.sealants', { n: hd.sealants })))),
     );
 

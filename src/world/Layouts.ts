@@ -116,6 +116,22 @@ function pushMarkers(info: LayoutInfo, m: C.Markers, team: number | null, o: { s
  */
 function pickSpawns(b: StructureBuilder, info: LayoutInfo, def: MapDef, total: number, rMin: number): void {
   const eye = new THREE.Vector3(0, 1.6, 0);
+  // no free pickups at a spawn: drop interior spawns that sit on top of one
+  const nearPickup = (p: THREE.Vector3, r: number) => info.pickups.some((q) => q.pos.distanceTo(p) < r);
+  for (let i = info.spawns.length - 1; i >= 0; i--) if (info.spawns[i].team === -1 && nearPickup(info.spawns[i].pos, 6.5)) info.spawns.splice(i, 1);
+  // exposure probe: share of a coarse grid of standing eyes that can see a spawn (lazy, per pick)
+  const probes: THREE.Vector3[] = [];
+  for (let x = -def.halfX + 6; x < def.halfX; x += 13)
+    for (let z = -def.halfZ + 6; z < def.halfZ; z += 13) {
+      const y = b.ground(x, z);
+      if (!b.world.pointBlocked(new THREE.Vector3(x, y + 1.2, z), 0.4)) probes.push(new THREE.Vector3(x, y + 1.6, z));
+    }
+  const exposure = (p: THREE.Vector3) => {
+    const e = p.clone().add(eye);
+    let n = 0;
+    for (const q of probes) if (q.distanceTo(e) > 10 && b.world.visible(e, q)) n++;
+    return n / Math.max(1, probes.length);
+  };
   const chosen = info.spawns.filter((s) => s.team === -1);
   // drop interior spawns that see each other
   for (let i = chosen.length - 1; i >= 0; i--)
@@ -135,6 +151,7 @@ function pickSpawns(b: StructureBuilder, info: LayoutInfo, def: MapDef, total: n
       if (Math.hypot(x, z) < rMin) continue;
       const p = new THREE.Vector3(x, b.ground(x, z) + 0.3, z);
       if (b.world.pointBlocked(p.clone().add(up06), 0.5) || b.world.pointBlocked(p.clone().add(up14), 0.5)) continue;
+      if (nearPickup(p, 8)) continue;
       cands.push(p);
     }
   // incremental scores: visibility count and nearest-spawn distance per candidate
@@ -167,10 +184,115 @@ function pickSpawns(b: StructureBuilder, info: LayoutInfo, def: MapDef, total: n
     if (best < 0) break;
     alive[best] = 0;
     const c = cands[best];
+    // wide-open spots (seen from > 22 % of the map) make spawn-kills: skip them
+    if (exposure(c) > 0.22) continue;
     const sp = { pos: c, yaw: yawToward(c.x, c.z, 0, 0), team: -1 };
     info.spawns.push(sp);
     chosen.push(sp);
     account(c);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// set dressing: props on open ground, placed for gameplay (crouch 1.0–1.3 m / stand 2.2 m+ cover)
+
+type DressKind = 'rover' | 'truck' | 'tank' | 'reel' | 'mast' | 'debris' | 'stock' | 'signA' | 'signB' | 'signC' | 'bags' | 'crates' | 'container';
+interface Dress {
+  k: DressKind;
+  x: number;
+  z: number;
+  rot?: number;
+  /** allowed inside keep-out circles / the pit rim (hand-checked spots) */
+  force?: boolean;
+}
+const DRESS_R: Record<DressKind, number> = { rover: 3, truck: 3.6, tank: 3, reel: 1, mast: 1.4, debris: 2.2, stock: 5.5, signA: 1.4, signB: 1.4, signC: 1.4, bags: 1.8, crates: 1.4, container: 3.2 };
+
+/** footprint free of colliders, spawns, pickups (and, unless forced, complexes and the mine) */
+function dressClear(b: StructureBuilder, def: MapDef, info: LayoutInfo, d: Dress): boolean {
+  const r = DRESS_R[d.k];
+  if (Math.abs(d.x) > def.halfX - r || Math.abs(d.z) > def.halfZ - r) return false;
+  for (const s of info.spawns) if (Math.hypot(s.pos.x - d.x, s.pos.z - d.z) < r + 2) return false;
+  for (const p of info.pickups) if (Math.hypot(p.pos.x - d.x, p.pos.z - d.z) < r + 1) return false;
+  // door approaches / stair runs recorded by the kit stay clear
+  const g = b.ground(d.x, d.z);
+  const fb = new THREE.Box3(V(d.x - r * 0.8, g + 0.1, d.z - r * 0.8), V(d.x + r * 0.8, g + 2, d.z + r * 0.8));
+  for (const rz of b.reserved) if (rz.intersectsBox(fb)) return false;
+  if (!d.force) {
+    if (Math.hypot(d.x - def.mine.x, d.z - def.mine.z) < def.mine.r + 1) return false;
+    // only the core of a complex is off limits (its pad edges take props)
+    for (const k of info.keepOut) if (k.r > 6 && Math.hypot(k.x - d.x, k.z - d.z) < k.r * 0.55) return false;
+  }
+  const probe = (px: number, pz: number, pr: number) => b.world.pointBlocked(V(px, b.ground(px, pz) + pr + 0.15, pz), pr);
+  if (probe(d.x, d.z, Math.min(1.1, r * 0.6))) return false;
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + (d.rot ?? 0);
+    if (probe(d.x + Math.cos(a) * r * 0.65, d.z + Math.sin(a) * r * 0.65, Math.min(1.0, r * 0.4))) return false;
+  }
+  return true;
+}
+
+function dressOne(b: StructureBuilder, d: Dress, seed: number): void {
+  const rot = d.rot ?? 0;
+  const k = K(b, d.x, d.z, 0);
+  switch (d.k) {
+    case 'rover':
+      k.rover(0, 0, rot, 0, seed % 3 === 0 ? 'teal' : seed % 3 === 1 ? 'orange' : 'yellow', seed);
+      break;
+    case 'truck':
+      C.haulTruck(k, 0, 0, rot, 0, seed % 2 === 0);
+      break;
+    case 'tank':
+      k.fuelTank(0, 0, rot, 0, 4.6, seed % 2 ? 'hull' : 'paintWhite', seed % 2 ? 'teal' : 'orange');
+      break;
+    case 'reel':
+      k.cableReel(0, 0, rot);
+      break;
+    case 'mast':
+      k.antennaMast(0, 0, 11 + (seed % 3) * 2, 0, seed);
+      break;
+    case 'debris':
+      k.debris(0, 0, seed);
+      break;
+    case 'stock':
+      k.stockpile(0, 0, rot, 9, 3.2);
+      break;
+    case 'signA':
+    case 'signB':
+    case 'signC':
+      k.signPost(0, 0, rot, d.k);
+      break;
+    case 'bags':
+      k.at(0, 0, rot).sandbags(-1.6, 0, 1.6, 0, 1.05);
+      break;
+    case 'crates':
+      k.crate(0, 0, rot, 1.2);
+      k.crate(0.4, 1.2, rot + 0.5, 0.9);
+      break;
+    case 'container':
+      P.containers(b, frameAt(b, d.x, d.z, rot), [[0, 0, 0, 0]], seed + 40);
+      break;
+  }
+}
+
+/**
+ * Place a dressing list. `mirror` (team maps) adds the 180° copy of every item and only places a
+ * pair when both spots are clear, so the maps stay point-symmetric.
+ */
+function dress(b: StructureBuilder, def: MapDef, info: LayoutInfo, list: Dress[], mirror: boolean): void {
+  let seed = 1;
+  for (const d of list) {
+    // under the 180° rotation A ↔ C swap sides (front), B stays
+    const mk: DressKind = d.k === 'signA' ? 'signC' : d.k === 'signC' ? 'signA' : d.k;
+    const items = mirror ? [d, { ...d, k: mk, x: -d.x, z: -d.z, rot: (d.rot ?? 0) + Math.PI }] : [d];
+    if (!items.every((it) => dressClear(b, def, info, it))) {
+      b.dressSkipped.push(`${d.k}@${d.x},${d.z}`);
+      continue;
+    }
+    for (const it of items) {
+      dressOne(b, it, seed);
+      info.keepOut.push({ x: it.x, z: it.z, r: DRESS_R[it.k] + 1 });
+    }
+    seed++;
   }
 }
 
@@ -181,7 +303,8 @@ function K(b: StructureBuilder, x: number, z: number, rot = 0): Kit {
 
 /** Mine dressing shared by all maps: drill rig, ore, rim lights. */
 function mineCore(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: number, floorY: number, rigRot: number, cpR: number): void {
-  P.drillRig(b, F(b, def.mine.x, def.mine.z, rigRot));
+  // walkable rig deck (0.3 m) sized to the pit floor; the capture centre is open floor under the raised drill
+  P.drillRig(b, F(b, def.mine.x, def.mine.z, rigRot), { deckR: Math.min(6.2, def.mine.floorR - 1.4), ramps: def.mine.ramps });
   info.controlPoints.push({ id: 'B', pos: V(def.mine.x, floorY, def.mine.z), radius: cpR });
   const r = def.mine.r;
   const n = Math.max(6, Math.round(r / 4.5));
@@ -191,6 +314,45 @@ function mineCore(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: numbe
     k.lampPost(0, 0, Math.PI, 0, 4.5, 0xffc98a);
   }
   info.podZones.push(V(def.mine.x, 0, def.mine.z));
+  benchWindrows(b, def);
+}
+
+/**
+ * Safety windrows along each bench crest (real open-pit practice): 1 m regolith berms in ~6 m
+ * segments with walk-through gaps — crouch cover on the benches, never across a haul ramp.
+ * Segments come in (a, a + π) pairs so team maps stay point-symmetric.
+ */
+function benchWindrows(b: StructureBuilder, def: MapDef, avoid: [number, number][] = []): void {
+  const m = def.mine;
+  const span = m.r - m.floorR;
+  for (let step = 0; step < m.benches - 1; step++) {
+    const rc = m.floorR + ((step + 0.98) / m.benches) * span + 0.9;
+    const benchW = (0.62 / m.benches) * span;
+    if (benchW < 2.6) continue;
+    const circ = 2 * Math.PI * rc;
+    let n = Math.max(6, Math.round(circ / 10));
+    if (n % 2) n++;
+    const segA = (6 / circ) * Math.PI * 2;
+    const a0 = (step * 0.37 + 0.2) % ((Math.PI * 2) / n);
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * Math.PI * 2;
+      const clash = m.ramps.some((ra) => {
+        const d = Math.abs(Math.atan2(Math.sin(a - ra), Math.cos(a - ra)));
+        return d * rc < 6.5 + 3;
+      });
+      if (clash) continue;
+      const ax = m.x + Math.cos(a - segA / 2) * rc;
+      const az = m.z + Math.sin(a - segA / 2) * rc;
+      const bx = m.x + Math.cos(a + segA / 2) * rc;
+      const bz = m.z + Math.sin(a + segA / 2) * rc;
+      const mx = (ax + bx) / 2;
+      const mz = (az + bz) / 2;
+      if (avoid.some(([x, z]) => Math.hypot(mx - x, mz - z) < 5)) continue;
+      if (b.world.pointBlocked(V(mx, b.ground(mx, mz) + 1.4, mz), 1.1)) continue;
+      const k = new Kit(b, { x: 0, y: b.ground(mx, mz), z: 0, rot: 0 });
+      k.berm(ax, az, bx, bz, 1.05, 0.5, 2.3, 0, 'dirt');
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -212,10 +374,11 @@ function buildDuel(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: numb
     pushMarkers(info, m, team, { b,  spawns: true });
     info.baseCenters.push(V(s * 41, b.ground(s * 41, 0), 0));
   }
-  // lanes: relays (point-symmetric)
+  // lanes: relays (point-symmetric); their pickup is the armour (equidistant, contested)
   for (const s of [-1, 1]) {
     const m = C.markers();
     C.relay(K(b, 0, s * 31, s > 0 ? Math.PI : 0), m, { seed: s > 0 ? 1 : 2 });
+    for (const p of m.pickups) if (p.kind === 'ammo') p.kind = 'armor';
     pushMarkers(info, m, null, { b });
   }
   // rim cover between lanes
@@ -231,9 +394,22 @@ function buildDuel(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: numb
     C.coverCluster(K(b, s * -19, s * 29, s > 0 ? 0.4 : Math.PI + 0.4), 1, { lamp: false });
     info.keepOut.push({ x: s * 21, z: s * 27, r: 6 }, { x: -s * 19, z: s * 29, r: 6 });
   }
-  info.pickups.push({ pos: V(0, 0, 9), kind: 'ammo' }, { pos: V(-28, 0, 22), kind: 'grenade' }, { pos: V(28, 0, -22), kind: 'grenade' });
+  info.pickups.push({ pos: V(0, 0, 9), kind: 'ammo' }, { pos: V(0, 0, -9), kind: 'ammo' }, { pos: V(-28, 0, 22), kind: 'grenade' }, { pos: V(28, 0, -22), kind: 'grenade' });
   info.podZones.push(V(0, 0, 22), V(0, 0, -22));
   info.keepOut.push({ x: -10, z: 0, r: 3 }, { x: 10, z: 0, r: 3 });
+  // dressing (team-0 half, mirrored): haul trucks on the rim diagonals break the corner-to-corner
+  // sightline over the pit; tank / reel give mid-field cover between the redan and the rim
+  dress(b, def, info, [
+    { k: 'truck', x: -18.5, z: -15.3, rot: 2.45 },
+    { k: 'tank', x: -29, z: 9, rot: 0 },
+    { k: 'reel', x: -23.5, z: 2.5, rot: 0.3 },
+    { k: 'rover', x: -34, z: 22, rot: 0.3 },
+    { k: 'rover', x: 12, z: -36, rot: 1.2 },
+    { k: 'mast', x: -50, z: 31 },
+    { k: 'debris', x: -38, z: -28 },
+    { k: 'crates', x: -14, z: 31, rot: 0.4 },
+    { k: 'bags', x: -23.5, z: -8, rot: 1.3 },
+  ], true);
 }
 
 // ---------------------------------------------------------------------------
@@ -242,8 +418,8 @@ function buildDuel(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: numb
 // W depot, NW power station. Spawns spread inside/behind every complex.
 function buildQuarry(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: number, floorY: number): void {
   mineCore(b, def, info, top, floorY, 0.4, 10);
-  P.bridge(b, -14, -45, -14, 45, top + 0.8);
-  P.bridge(b, -45, 18, 45, 18, top + 0.8);
+  P.bridge(b, -14, -45, -14, 45, top + 0.8, 3.6, { keep: [[-14, 18]] });
+  P.bridge(b, -45, 18, 45, 18, top + 0.8, 3.6, { keep: [[-14, 18]] });
   for (const z of [-26, 30]) P.pylon(b, -14, z, top - 2.1);
   for (const x of [-30, 22]) P.pylon(b, x, 18, top - 2.1);
   info.perches.push(V(-14, top + 0.9, 18), V(-14, top + 0.9, -20), V(20, top + 0.9, 18));
@@ -294,6 +470,38 @@ function buildQuarry(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: nu
   info.pickups.push({ pos: V(0, 0, 13), kind: 'ammo' }, { pos: V(-38, 0, 38), kind: 'grenade' }, { pos: V(40, 0, -32), kind: 'armor' });
   info.podZones.push(V(0, 0, 25), V(25, 0, -15), V(-30, 0, 30), V(35, 0, 35), V(-35, 0, -30));
   info.keepOut.push({ x: -14, z: 0, r: 3 }, { x: 0, z: 18, r: 3 });
+  // dressing: ring-road traffic between the complexes, cover on the long rim stretches, cable reels
+  // on the pit benches, masts as skyline landmarks in the corners
+  const reel = (a: number, r = 22.2): Dress => ({ k: 'reel', x: Math.cos((a * Math.PI) / 180) * r, z: Math.sin((a * Math.PI) / 180) * r, rot: (a * Math.PI) / 180, force: true });
+  dress(b, def, info, [
+    { k: 'rover', x: 31, z: 40, rot: 0.8 },
+    { k: 'rover', x: -45, z: -29, rot: 2.2 },
+    { k: 'rover', x: 47, z: -30, rot: -0.4 },
+    { k: 'truck', x: -42, z: 27, rot: 2.6 },
+    { k: 'truck', x: 27, z: -44, rot: 1.0 },
+    { k: 'tank', x: 41, z: 26, rot: 0.6 },
+    { k: 'tank', x: -29, z: -45, rot: 2.1 },
+    { k: 'mast', x: 69, z: 69 },
+    { k: 'mast', x: -72, z: -38 },
+    { k: 'mast', x: 68, z: -69 },
+    { k: 'debris', x: 32, z: -33 },
+    { k: 'debris', x: -33, z: 33 },
+    { k: 'debris', x: 46, z: 12 },
+    { k: 'debris', x: -46, z: -12 },
+    { k: 'bags', x: -44, z: 14, rot: 1.9 },
+    { k: 'bags', x: 44, z: -10, rot: 1.35 },
+    { k: 'bags', x: -10, z: -44, rot: 0.2 },
+    { k: 'crates', x: 36, z: -38, rot: 0.3 },
+    { k: 'crates', x: -36, z: 40, rot: 1.1 },
+    reel(50),
+    reel(110),
+    reel(200),
+    reel(235),
+    reel(320),
+    reel(33, 29.3),
+    reel(180, 29.3),
+    reel(300, 29.3),
+  ], false);
 }
 
 // ---------------------------------------------------------------------------
@@ -354,4 +562,21 @@ function buildFront(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: num
   info.pickups.push({ pos: V(0, 0, 10), kind: 'armor' }, { pos: V(-28, 0, 26), kind: 'grenade' }, { pos: V(28, 0, -26), kind: 'grenade' });
   info.podZones.push(V(0, 0, 36), V(0, 0, -36), V(-30, 0, 30), V(30, 0, -30));
   info.keepOut.push({ x: -13, z: 0, r: 3 }, { x: 13, z: 0, r: 3 });
+  // dressing (team-0 half, mirrored): ore stockpile on the rim blocks the diagonal lane over the pit,
+  // objective signs at A / B (C mirrored), cover on the fort → A and fort → flank approaches
+  dress(b, def, info, [
+    { k: 'signA', x: -32.5, z: -13, rot: Math.PI / 2 },
+    { k: 'signA', x: -60.5, z: 17.5, rot: Math.PI / 2 },
+    { k: 'signB', x: -32.5, z: 6, rot: Math.PI / 2 },
+    { k: 'rover', x: -70, z: -31, rot: 0.4 },
+    { k: 'rover', x: -43, z: 31, rot: -0.6 },
+    { k: 'tank', x: -61, z: -9, rot: 0 },
+    { k: 'mast', x: -100, z: 50 },
+    { k: 'debris', x: -41, z: -31 },
+    { k: 'debris', x: -13, z: -38 },
+    { k: 'bags', x: -62.5, z: 6, rot: Math.PI / 2 },
+    { k: 'bags', x: -52, z: 34, rot: 0.5 },
+    { k: 'crates', x: -60, z: 20, rot: 0.3 },
+    { k: 'crates', x: -53, z: -27, rot: 0.8 },
+  ], true);
 }

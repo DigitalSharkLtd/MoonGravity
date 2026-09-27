@@ -27,6 +27,8 @@ const _p = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
 const _id = new THREE.Quaternion();
+const _t1 = new THREE.Vector3();
+const _t2 = new THREE.Vector3();
 
 export interface BodyEvents {
   landed: number; // impact speed if landed this step
@@ -89,6 +91,25 @@ export class Body {
   crouching = false;
   moveSpeed = 0;
   speedMul = 1;
+  // ---- movement tuning (defaults = standard suit; the game adjusts them per hero / passive) ----
+  /** take-off speed of a standing jump (m/s): 2.85 → ~2.5 m apex, ~3.5 s airtime in 1/6 g */
+  jumpSpeed = 2.85;
+  /** suit RCS air control (m/s²) */
+  airControl = 2.4;
+  /** jetpack: vertical thrust (m/s²), climb-speed cap, fuel burn (1/s) and refuel rates */
+  jetThrust = 4.4;
+  jetCap = 4.2;
+  jetBurn = 1 / 2.3;
+  jetRegen = 0.5;
+  /** fraction of the refuel rate that also works in the air while not thrusting (Condor) */
+  jetRegenAir = 0;
+  /** extra mid-air jumps (Blade's moon step) */
+  airJumps = 0;
+  /** mag-boot walking speed multiplier (scouts) */
+  magSpeedMul = 1;
+  /** true while the down-thrusters fire (crouch in the air) */
+  diving = false;
+  airJumpsLeft = 0;
   private detachTimer = 0;
   private flipTimer = 0;
   private terrainLock = 0;
@@ -213,7 +234,8 @@ export class Body {
     return { yaw, pitch: pitch - this.pitch };
   }
 
-  step(dt: number, input: MoveInput): void {
+  /** Reset the per-tick events (the game calls this once per tick and steps with keepEvents). */
+  clearEvents(): void {
     const ev = this.events;
     ev.landed = 0;
     ev.attached = false;
@@ -222,6 +244,15 @@ export class Body {
     ev.footstep = false;
     ev.jetStart = false;
     ev.rolled = ev.slid = ev.mantled = ev.grappleEnd = ev.airbrake = false;
+  }
+
+  /**
+   * Advance the body. `keepEvents`: accumulate events over several sub-steps (the game runs two
+   * sub-steps per tick; without it a landing / jump in the first sub-step was lost).
+   */
+  step(dt: number, input: MoveInput, keepEvents = false): void {
+    const ev = this.events;
+    if (!keepEvents) this.clearEvents();
     if (this.rollCd > 0) this.rollCd -= dt;
     if (this.magDisabled > 0) this.magDisabled -= dt;
     if (this.detachTimer > 0) this.detachTimer -= dt;
@@ -309,7 +340,7 @@ export class Body {
     const wl = wish.length();
     if (wl > 1) wish.divideScalar(wl);
     const sprinting = input.sprint && input.forward > 0.3 && !this.crouching;
-    const speed = (this.stance === 'prone' ? 1.3 : this.crouching ? 2.3 : sprinting ? 6.8 : 4.4) * this.speedMul;
+    const speed = (this.stance === 'prone' ? 1.3 : this.crouching ? 2.3 : sprinting ? 6.8 : 4.4) * this.speedMul * (this.attached && this.up.y < 0.8 ? this.magSpeedMul : 1);
 
     let magActive = this.magActive && this.detachTimer <= 0;
     let jumpedNow = false;
@@ -353,8 +384,9 @@ export class Body {
       const vn = this.vel.dot(n);
       const vt = this.vel.addScaledVector(n, -vn); // in-place: tangential
       const target = wg.multiplyScalar(speed);
-      let accel = this.attached ? 38 : 24; // lunar regolith has poor traction
-      let decel = this.attached ? 30 : 10;
+      // regolith has poor traction (you keep drifting a little), mag-boots grip hard
+      let accel = this.attached ? 38 : 30;
+      let decel = this.attached ? 30 : 16;
       if (this.stance === 'slide') {
         // sliding on regolith: carry momentum, only light steering
         target.copy(vt).multiplyScalar(0.6);
@@ -378,7 +410,7 @@ export class Body {
         // jump from prone = stand up
         this.proneOn = false;
       } else if (input.jumpPressed) {
-        const js = this.stance === 'slide' ? 3.6 : this.crouching ? 2.4 : 3.3;
+        const js = this.stance === 'slide' ? this.jumpSpeed + 0.45 : this.crouching ? this.jumpSpeed * 0.8 : this.jumpSpeed;
         if (this.attached && this.up.y < 0.8) {
           // push off a wall/ceiling
           this.vel.addScaledVector(this.up, 3.6);
@@ -397,25 +429,44 @@ export class Body {
     } else {
       // ---- airborne ----
       if (!(this.flipTimer > 0)) this.vel.y -= MOON_G * dt;
-      // air control (weak), plus jetpack
+      // air control (suit RCS thrusters), plus jetpack
       const hv = _p.copy(this.vel);
       hv.y = 0;
       const wishH = _n.copy(wish);
       wishH.y = 0;
-      const air = this.jetting ? 5.5 : 1.6;
+      const air = this.jetting ? 6 : this.airControl;
       if (wishH.lengthSq() > 0.001) {
-        const along = hv.dot(wishH.clone().normalize());
+        const along = hv.dot(_a.copy(wishH).normalize());
         if (along < speed) this.vel.addScaledVector(wishH, air * dt);
+      }
+      if (input.jumpPressed && this.airJumpsLeft > 0 && this.flipTimer <= 0 && this.airTime > 0.12) {
+        // moon step: a second kick off the suit thrusters, redirected toward the wish direction
+        this.airJumpsLeft--;
+        const hs = Math.hypot(this.vel.x, this.vel.z);
+        if (wishH.lengthSq() > 0.01) {
+          _a.copy(wishH).normalize().multiplyScalar(Math.max(hs, speed * 1.15));
+          this.vel.x = _a.x;
+          this.vel.z = _a.z;
+        }
+        this.vel.y = Math.max(this.vel.y * 0.3, 0) + this.jumpSpeed * 0.85;
+        this.jetDelay = 0.35;
+        ev.jumped = true;
       }
       const canJet = input.jump && this.jetFuel > 0.02 && this.jetDelay <= 0;
       if (canJet) {
         if (!this.jetting) ev.jetStart = true;
         this.jetting = true;
-        this.vel.addScaledVector(WORLD_UP, 4.6 * dt);
-        this.jetFuel = Math.max(0, this.jetFuel - dt / 2.6);
-        // cap upward speed
-        if (this.vel.y > 5.5) this.vel.y = 5.5;
+        this.vel.addScaledVector(WORLD_UP, this.jetThrust * dt);
+        this.jetFuel = Math.max(0, this.jetFuel - dt * this.jetBurn);
+        // cap climb speed (the thrust stays useful as a brake when falling fast)
+        if (this.vel.y > this.jetCap) this.vel.y = Math.max(this.jetCap, this.vel.y - 6 * dt);
       } else this.jetting = false;
+      // down-thrusters: hold crouch in the air to cut the lunar hang time (costs a little fuel)
+      this.diving = !this.jetting && input.crouch && this.jetFuel > 0.02 && this.flipTimer <= 0 && this.vel.y > -12;
+      if (this.diving) {
+        this.vel.y -= 6 * dt;
+        this.jetFuel = Math.max(0, this.jetFuel - dt * 0.12);
+      }
       if (this.flipTimer > 0) {
         // magnetic pull toward the surface we're flipping onto
         this.vel.addScaledVector(this.targetUp, -9 * dt);
@@ -423,7 +474,10 @@ export class Body {
     }
     if (this.grounded) {
       this.jetting = false;
-      if (this.jetDelay <= 0) this.jetFuel = Math.min(1, this.jetFuel + dt * 0.45);
+      this.diving = false;
+      if (this.jetDelay <= 0) this.jetFuel = Math.min(1, this.jetFuel + dt * this.jetRegen);
+    } else if (!this.jetting && !this.diving && this.jetRegenAir > 0 && this.jetDelay <= 0) {
+      this.jetFuel = Math.min(1, this.jetFuel + dt * this.jetRegen * this.jetRegenAir);
     }
 
     // ---- integrate ----
@@ -528,7 +582,11 @@ export class Body {
         const sph = (c as Contact & { sphere?: number }).sphere ?? 0;
         const nd = c.normal.dot(up);
         if (this.wasGrounded) {
-          if (nd > 0.5 || sph === 0 || !moving) continue;
+          if (nd > 0.5 || !moving) continue;
+          // the feet sphere only counts against a wall that keeps going up (not a curb / low ledge):
+          // leaning arches and vault feet touch the feet first
+          // (walking down a wall into a floor always counts: a floor is never a curb)
+          if (sph === 0 && !(c.normal.y > 0.7 && up.y < 0.7) && !this.tallMetalWall(c.normal, up)) continue;
           const into = -c.normal.dot(wish) / Math.max(wl, 1e-3);
           if (into > 0.45 && into > bestScore) {
             bestScore = into;
@@ -560,21 +618,29 @@ export class Body {
       } else {
         // (b) support probe: nearest metal under the feet (rolls around convex edges)
         const reach = r + (this.attached || this.wasGrounded ? 0.55 : 0.08);
-        let d = this.world.nearestMetal(feet, reach, _a, _n, (nn) => {
-          const s = nn.dot(up);
-          // while terrain-locked only floors that are roughly world-up count
-          if (this.terrainLock > 0 && nn.y < 0.6) return false;
-          return s > 0.25;
-        });
+        let d = this.world.nearestMetal(
+          feet,
+          reach,
+          _a,
+          _n,
+          (nn) => {
+            const s = nn.dot(up);
+            // while terrain-locked only floors that are roughly world-up count
+            if (this.terrainLock > 0 && nn.y < 0.6) return false;
+            return s > 0.25;
+          },
+        );
         if (d < reach && this.wallLock <= 0) {
           const edgeN = _n.copy(feet).sub(_a).normalize();
           // upright and the regolith is right below: step off the platform instead of rolling around its edge
           const terrainGap = feet.y - r - this.world.hf.heightAt(feet.x, feet.z);
           if (edgeN.y < 0.9 && up.y > 0.5 && terrainGap < 0.6) d = Infinity;
-          // on a wall, walking down into the ground: hand over to the terrain
+          // on a wall, walking down into the ground or onto a (non-metal) roof / floor: hand over to it
+          // (a parapet's inner face ends on the roof slab: without this the boots kept you glued to it)
           if (d < reach && up.y < 0.7 && moving) {
             for (const c of contacts) {
-              if (!c.terrain || c.normal.y < 0.45) continue;
+              if (c.normal.y < (c.terrain ? 0.45 : 0.6)) continue;
+              if (c.metal && !c.terrain && c.normal.dot(up) < 0.5 && -c.normal.dot(wish) / Math.max(wl, 1e-3) > 0.45) continue; // (a) handles metal floors
               if (-c.normal.dot(wish) / Math.max(wl, 1e-3) > 0.4) {
                 d = Infinity;
                 break;
@@ -611,10 +677,10 @@ export class Body {
         const walk = c.normal.y;
         if (walk > 0.55 && (!best || walk > best.normal.y)) best = c;
       }
-      // attached and walking down a wall into the terrain: step off onto the ground
+      // attached and walking down a wall into the terrain / a floor: step off onto the ground
       if (this.attached && !best) {
         for (const c of contacts) {
-          if (c.terrain && c.normal.y > 0.4 && moving) {
+          if (c.normal.y > (c.terrain ? 0.4 : 0.55) && moving) {
             best = c;
             break;
           }
@@ -674,9 +740,10 @@ export class Body {
 
     // ---- events / bookkeeping ----
     if (this.grounded && !this.wasGrounded) {
-      ev.landed = Math.max(0.01, this.lastAirSpeed);
+      ev.landed = Math.max(ev.landed, 0.01, this.lastAirSpeed);
       this.airTime = 0;
     }
+    if (this.grounded) this.airJumpsLeft = this.airJumps;
     if (!this.grounded) {
       this.airTime += dt;
       this.lastAirSpeed = Math.max(0, -this.vel.dot(this.up));
@@ -696,6 +763,16 @@ export class Body {
   private pivotMid = false;
   private lastAirSpeed = 0;
   private wallLock = 0;
+
+  /** does a metal wall with this normal continue above the feet (a real wall, not a curb)? */
+  private tallMetalWall(n: THREE.Vector3, up: THREE.Vector3): boolean {
+    const o = _t1.copy(this.pos).addScaledVector(up, Math.min(this.height - this.radius, 1.1));
+    const into = _t2.copy(n).negate();
+    // the wall at knee/chest height must be (about) as close as at the feet: a stair's next riser or a
+    // set-back storey is further away and does not count
+    const hit = this.world.raycast(o, into, this.radius + 0.12, { forMove: true });
+    return !!hit && hit.metal && hit.normal.dot(n) > 0.8;
+  }
 
   /** Knockback / explosion impulses. */
   impulse(v: THREE.Vector3): void {

@@ -65,12 +65,12 @@ export class Lighting {
         shadowBias: -0.00025,
       });
       this.csm.fade = true;
-      for (const l of this.csm.lights) {
+      this.csm.lights.forEach((l) => {
         l.color.copy(this.sunColor);
         l.shadow.normalBias = 0.035;
         l.shadow.radius = 1.5;
-        l.shadow.camera.layers.enable(5); // LAYER_SHADOW_ONLY: first-person body still casts a shadow
-      }
+      });
+      this.hookShadowLayers(scene);
       for (const m of allLit()) this.setupMaterial(m);
       this.unsub = onLitMaterial((m) => this.setupMaterial(m));
     }
@@ -81,6 +81,40 @@ export class Lighting {
     scene.environment = this.envMap;
     scene.environmentIntensity = 0.55;
   }
+
+  /**
+   * Shadow-only layers. three r186 tests shadow casters against the *main* camera's layers, after the
+   * main render list has been built — so each cascade's shadow pass temporarily adds layer 5
+   * (LAYER_SHADOW_ONLY: terrain + structure shadow proxies, first-person body) and, for the nearest
+   * cascade only, layer 6 (thin / small structure detail); the scene's onAfterRender restores the mask.
+   */
+  private hookShadowLayers(scene: THREE.Scene): void {
+    if (!this.csm) return;
+    let cam: THREE.Camera | null = null;
+    let saved = 0;
+    this.csm.lights.forEach((l, i) => {
+      const shadow = l.shadow as THREE.DirectionalLightShadow & { updateMatrices(light: THREE.Light, camera?: THREE.Camera): void };
+      const orig = shadow.updateMatrices.bind(shadow);
+      shadow.updateMatrices = (light: THREE.Light, camera?: THREE.Camera) => {
+        if (camera) {
+          if (cam !== camera) {
+            cam = camera;
+            saved = camera.layers.mask;
+          }
+          camera.layers.mask = saved | (1 << 5) | (i === 0 ? 1 << 6 : 0);
+        }
+        orig(light);
+      };
+    });
+    scene.onAfterRender = () => {
+      if (cam) cam.layers.mask = saved;
+      cam = null;
+    };
+    this.unhookLayers = () => {
+      scene.onAfterRender = () => {};
+    };
+  }
+  private unhookLayers: (() => void) | null = null;
 
   /**
    * Graphics setting: image-based reflections. Off keeps a dim diffuse IBL and lifts the
@@ -114,6 +148,7 @@ export class Lighting {
 
   dispose(): void {
     this.unsub?.();
+    this.unhookLayers?.();
     if (this.csm) {
       this.csm.remove();
       this.csm.dispose();

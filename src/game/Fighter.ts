@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Body, MoveInput, emptyInput } from '../entities/Body';
 import { HeroModel } from '../entities/HeroModel';
 import { PhysicsWorld } from '../core/Physics';
-import { HEROES, HeroDef, HeroId, WeaponId, AbilityId, BuildMods } from './Types';
+import { HEROES, HeroDef, HeroId, WeaponId, AbilityId, BuildMods, PassiveId, RolePassiveId, ROLE_PASSIVE } from './Types';
 import { WEAPONS, WeaponDef } from '../weapons/WeaponDefs';
 
 export interface Intent extends MoveInput {
@@ -18,10 +18,12 @@ export interface Intent extends MoveInput {
   toggleMag: boolean;
   grapple: boolean; // pressed
   melee: boolean; // pressed
+  /** aim button pressed this tick (alt-fire trigger: detonate / slug / glob) */
+  altPressed: boolean;
 }
 
 export function emptyIntent(): Intent {
-  return { ...emptyInput(), fire: false, firePressed: false, aim: false, reload: false, ability1: false, ability2: false, ultimate: false, slot: -1, sealant: false, toggleMag: false, grapple: false, melee: false };
+  return { ...emptyInput(), fire: false, firePressed: false, aim: false, reload: false, ability1: false, ability2: false, ultimate: false, slot: -1, sealant: false, toggleMag: false, grapple: false, melee: false, altPressed: false };
 }
 
 export interface WeaponState {
@@ -32,15 +34,41 @@ export interface WeaponState {
   cooldown: number;
   reloadT: number; // > 0 while reloading (seconds left)
   charge: number; // 0..1 railgun charge
-  spread: number; // current bloom
+  spread: number; // current bloom (rad)
   burst: number; // alternating barrel for twin weapons
   burstLeft: number; // burst rifle: rounds left in the current burst
   burstT: number;
+  /** seconds since the last shot */
+  sinceShot: number;
+  /** shots in the current string (recoil weave index) */
+  string: number;
+  /** unrecovered recoil (rad) the view drifts back from */
+  recoilPitch: number;
+  recoilYaw: number;
+  /** riveter heat 0..1 and overheat / vent lockout */
+  heat: number;
+  ventT: number;
+  /** alt-fire cooldown */
+  altCd: number;
+  /** burst rifle "Trill": enemy hit by the rounds of the current burst */
+  burstHitId: number;
+  burstHits: number;
+  burstIdx: number;
+  /** katana combo */
+  combo: number;
+  comboT: number;
+  /** twin arcs static build-up */
+  staticId: number;
+  staticN: number;
+  staticT: number;
 }
 
 export function makeWeapon(id: WeaponId): WeaponState {
   const def = WEAPONS[id];
-  return { id, def, ammo: def.mag, reserve: def.reserve, cooldown: 0, reloadT: 0, charge: 0, spread: 0, burst: 0, burstLeft: 0, burstT: 0 };
+  return {
+    id, def, ammo: def.mag, reserve: def.reserve, cooldown: 0, reloadT: 0, charge: 0, spread: 0, burst: 0, burstLeft: 0, burstT: 0,
+    sinceShot: 9, string: 0, recoilPitch: 0, recoilYaw: 0, heat: 0, ventT: 0, altCd: 0, burstHitId: -1, burstHits: 0, burstIdx: 0, combo: 0, comboT: 0, staticId: -1, staticN: 0, staticT: 0,
+  };
 }
 
 export interface AbilityState {
@@ -147,6 +175,8 @@ export class Fighter {
   firingVisual = 0;
   anchor: { target: THREE.Vector3; normal: THREE.Vector3 | null; t: number } | null = null;
   slam = 0; // >0 while slamming down
+  /** short window after a slam landing (no fall damage from the dive) */
+  slamGrace = 0;
   lastWallTime = -99;
   lastStepFoot = 0;
   // expanded kit
@@ -166,6 +196,11 @@ export class Fighter {
   buildId = '';
   mods: BuildMods = {};
   flags = new Set<string>();
+  /** Hive's drone link: marked by fighter id until markT runs out */
+  markedBy = -1;
+  markT = 0;
+  /** Helios' life-support link / Forge's field repairs reach this fighter (set by Vitals each tick) */
+  linkT = 0;
   /** grapple rope anchor for rendering (local sim uses body.grapple; remotes get it via net) */
   rope: THREE.Vector3 | null = null;
   ropeT = 0;
@@ -222,6 +257,19 @@ export class Fighter {
     }
   }
 
+  get passive(): PassiveId {
+    return this.def.passive;
+  }
+
+  get rolePassive(): RolePassiveId {
+    return ROLE_PASSIVE[this.def.role];
+  }
+
+  /** knockback mass: heavier suits get pushed less (tanks also have the heavy-frame role passive) */
+  get mass(): number {
+    return (this.def.mass ?? 1) * (this.rolePassive === 'heavy' ? 1.35 : 1) * (this.summonOf >= 0 ? 1.1 : 1);
+  }
+
   get ultCostEff(): number {
     return this.def.ultCost * (this.mods.ultCost ?? 1);
   }
@@ -246,6 +294,8 @@ export class Fighter {
     this.sealants = this.def.sealants;
     this.sealT = -1;
     this.empT = this.cloakT = this.invulnT = this.overchargeT = this.swarmT = this.revealedT = this.slowT = 0;
+    this.markedBy = -1;
+    this.markT = this.linkT = 0;
     for (const a of this.abilities) {
       a.cooldown = 0;
       a.charges = a.maxCharges;

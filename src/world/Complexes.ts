@@ -346,10 +346,12 @@ export function fortress(k: Kit, team: number, m: Markers): void {
   }
   g.sign(1.62, 3.75, 0, 3.8, 0.5, 1, 0, team === 0 ? 'label0' : 'label1');
   g.light(3.5, 3, 0, tl, 6, 10);
-  // entry control point: serpentine jersey barriers, booth, floodlight
-  k.jersey(13, -2.2, Math.PI / 2, 3.4);
-  k.jersey(15.6, 2.2, Math.PI / 2, 3.4);
-  k.jersey(18.2, -2.2, Math.PI / 2, 3.4);
+  // entry control point: blast T-wall screening the gate (no sightline from the field into the
+  // bunker portal / spawn yard), then serpentine jersey barriers, booth, floodlight
+  k.tWall(12.4, -4.2, 12.4, 4.2, 3.6, 0.12, tm);
+  k.jersey(14.6, -2.2, Math.PI / 2, 3.4);
+  k.jersey(17.2, 2.2, Math.PI / 2, 3.4);
+  k.jersey(19.8, -2.2, Math.PI / 2, 3.4);
   const booth = k.at(14.5, 6.2, 0, 0);
   booth.span(-1.3, 0, -1.3, 1.3, 1.1, 1.3, 'concrete', { metal: false });
   booth.span(-1.3, 1.1, -1.3, 1.3, 2.4, -1.1, 'glassTint', { noShoot: true, metal: false, bevel: 0 });
@@ -472,6 +474,16 @@ function commandBunker(k: Kit, team: number, m: Markers): void {
   }
   k.box(x1 + 1.25, 5.9, 0, 0.3, 0.8, 8, 'trim', { collide: false });
   k.panel(x1 + 1.42, 5.9, 0, 6, 0.6, 1, 0, 0, 'hazard');
+  // portal hood: a short roofed throat so nothing on the walls / far roofs can look down into the war room
+  const hx0 = x1 + 1.2;
+  const hx1 = x1 + 4.2;
+  k.span(hx0, 4.0, -3.3, hx1, 4.55, 3.3, 'concrete', { metal: false, bevel: 0.1 });
+  for (const s of [-1, 1]) k.span(hx0, 0.12, s * 2.5, hx1, 4.0, s * 3.3, 'concrete', { metal: false, bevel: 0.08 });
+  // lintel over the mouth (2.9 m clear): shallow lines from far elevated spots can't slip in above heads
+  k.span(hx1 - 0.45, 2.9, -2.5, hx1, 4.0, 2.5, 'concrete', { metal: false, bevel: 0.06 });
+  k.box(hx1 - 0.1, 4.28, 0, 0.3, 0.6, 6.7, tm, { collide: false, bevel: 0.05 });
+  k.box(hx1 - 0.05, 3.85, 0, 0.12, 0.08, 4.8, teamGlow(team), { collide: false, bevel: 0 });
+  k.light((hx0 + hx1) / 2, 3.4, 0, tl, 3, 5);
   // roof slab (metal) + roof hatch; the stairs arrive on an exposed metal apron around the hatch,
   // the regolith cap sits 0.7 m higher (non-metal surfaces never meet metal ones at the same height)
   const stair = { x0: 3.3, z0: 5.6, x1: -5.1, z1: 5.6 };
@@ -500,9 +512,9 @@ function commandBunker(k: Kit, team: number, m: Markers): void {
   k.roomLights(x0 + 0.5, -6.5, x1 - 0.2, 6.5, 0.2, hh, WARM, 5);
   k.locker(4.2, -6.4, 0, 4, 0.2, tm);
   k.locker(4.2, 6.4, Math.PI, 4, 0.2, tm);
-  // spawn points inside the war room and just outside the portal
+  // spawn points: all inside the war room (the portal throat + gate T-wall keep it out of sight)
   for (let i = 0; i < 8; i++) {
-    const p = i < 5 ? k.p(-1.5 + (i % 2) * 2.6, 0.5, -4.2 + i * 2.1) : k.p(x1 + 3.5, 0.5, -3 + (i - 5) * 3);
+    const p = i < 5 ? k.p(-1.5 + (i % 2) * 2.6, 0.5, -4.2 + i * 2.1) : k.p(3.5, 0.5, [-4.6, -2.4, 2.6][i - 5]);
     m.spawns.push({ pos: p, yaw: k.f.rot - Math.PI / 2 });
   }
   m.perches.push(k.p(-2, cap + 0.1, 0));
@@ -556,7 +568,7 @@ export function outpost(k: Kit, team: number, m: Markers): void {
   ck.rack(-3.3, -5.2, 0, FLOOR);
   ck.console(2.5, -5.1, 0, FLOOR);
   m.perches.push(ck.p(-2, 2 * FLOOR + 0.2, -2), ck.p(6.8, FLOOR + 0.2, 0));
-  m.pickups.push({ pos: ck.p(1, FLOOR + 0.3, -2.5), kind: 'armor', elevated: true });
+  // (no pickup in the spawn block: armour sits on the contested relays instead — see buildDuel)
   for (let i = 0; i < 4; i++) m.spawns.push({ pos: ck.p(1.2 + (i % 2) * 2.2, 0.5, -3 + i * 1.6), yaw: k.f.rot - Math.PI / 2 });
   // redan: V-shaped rampart pointing at the enemy, entrance at the tip
   rampart(k, 1.5, -13, 9.5, -2.6, { h: 3, w: 2.4, outer: -1, team, lamps: false });
@@ -576,9 +588,11 @@ export function outpost(k: Kit, team: number, m: Markers): void {
   // lattice tower (mag-climbable legs) as sniper perch
   P.commTower(k.b, { ...k.at(-9.5, -12.5).f }, 9, team);
   m.perches.push(k.p(-9.5, 9.5, -12.5));
+  // spawn-door blast screen inside the redan tip: the field can't see into the spawn room
+  k.tWall(6.6, -2.5, 6.6, 2.5, 3.2, 0.12, tm);
   // cover & dressing
   k.sandbags(4, -1.2, 4, 1.2, 1.0, 0.12);
-  k.hesco(-1, -10.5, -1, -15.5, 1.3);
+  k.hesco(-2.4, -10.5, -2.4, -15.5, 1.3);
   k.crate(1.5, 10.2, 0.2, 1.2);
   k.crate(2.6, 11.0, 0.7, 0.9);
   k.barrels(-0.8, -3.2, 2);
@@ -756,6 +770,17 @@ export function siloComplex(k: Kit, m: Markers, o: { seed?: number } = {}): void
   lk.railing(-5.9, -4.4, 5.9, -4.4, 2 * FLOOR);
   lk.railing(5.9, -4.4, 5.9, 4.4, 2 * FLOOR);
   lk.railing(-5.9, 4.4, 5.9, 4.4, 2 * FLOOR);
+  // surge bin on the pit-side half of the roof: the loadout roof stays a flank perch over the silo
+  // yard instead of a sniper deck overlooking half the map
+  {
+    const R = 2 * FLOOR;
+    lk.span(2.0, R, -4.1, 5.7, R + 3.2, 4.1, 'yellow', { bevel: 0.12 });
+    lk.span(1.85, R + 3.2, -4.25, 5.85, R + 3.5, 4.25, 'darkPanel', { collide: false, bevel: 0.06 });
+    lk.span(2.8, R + 3.5, -1.5, 4.8, R + 4.3, 1.5, 'dark', { collide: false, bevel: 0.08 });
+    for (const z of [-2.6, 0, 2.6]) lk.box(1.9, R + 1.6, z, 0.08, 2.8, 0.12, 'darkPanel', { collide: false, bevel: 0 });
+    lk.panel(1.92, R + 2.2, 0, 3.4, 0.8, -1, 0, 0, 'hazard');
+    lk.box(3.2, R + 0.8, 4.2, 1.6, 1.4, 0.2, 'darkPanel', { collide: false, bevel: 0.04 });
+  }
   // two-flight stair from the yard up to the gantry (landing at 4 m)
   k.stairs(-2, -15.2, -2, -8.8, 0.12, FLOOR, 1.6, { rails: 'both', style: 'open', foot: true });
   k.span(-2.8, FLOOR - 0.3, -8.8, -1.2, FLOOR, -7.0, 'grid', { bevel: 0.03 });

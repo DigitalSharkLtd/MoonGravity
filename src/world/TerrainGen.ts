@@ -75,6 +75,8 @@ export function generateTerrain(def: MapDef): TerrainData {
     return near * (5 + hills * 14 + ridge * 8) + rise * (ridge * 150 + hills * 70);
   };
 
+  const trackMark: Record<number, number> = {};
+
   // --- base terrain ---
   for (let j = 0; j < nz; j++) {
     const z = hf.z0 + j * def.cell;
@@ -164,6 +166,10 @@ export function generateTerrain(def: MapDef): TerrainData {
       }
     }
   }
+
+  // --- team maps: point-symmetric relief (x,z) ↔ (-x,-z) so both sides get the same routes, cover
+  // and timings. Done before the pads are levelled so mirrored pads get equal target heights. ---
+  if (def.symmetric) symmetrize(hf, def, Infinity);
 
   // --- flats for bases (blend toward a level pad) ---
   for (const f of def.flats) {
@@ -269,6 +275,10 @@ export function generateTerrain(def: MapDef): TerrainData {
     }
   }
 
+  // mine carving adds irregular bench noise: mirror the pit area once more (the pads are already
+  // symmetric, so this only touches the mine and its spoil berm)
+  if (def.symmetric) symmetrize(hf, def, Math.hypot(m.x, m.z) + m.r * 1.5);
+
   // --- blend the margin into the far mountain ring so the seams match ---
   for (let j = 0; j < nz; j++) {
     const z = hf.z0 + j * def.cell;
@@ -289,6 +299,44 @@ export function generateTerrain(def: MapDef): TerrainData {
     }
   }
 
+  // --- worn haul roads / rover tracks: darker, compacted, slightly cool bands between complexes,
+  // pit ramps and the objectives (wayfinding at a glance); twin ruts where the grid resolves them ---
+  for (const line of def.tracks ?? []) {
+    const halfW = 1.9;
+    for (let s = 0; s + 1 < line.length; s++) {
+      const [ax, az] = line[s];
+      const [bx, bz] = line[s + 1];
+      const dx = bx - ax;
+      const dz = bz - az;
+      const L2 = dx * dx + dz * dz;
+      if (L2 < 1e-6) continue;
+      const R = halfW + 1.5;
+      const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - R - hf.x0) / def.cell));
+      const i1 = Math.min(nx - 1, Math.ceil((Math.max(ax, bx) + R - hf.x0) / def.cell));
+      const j0 = Math.max(0, Math.floor((Math.min(az, bz) - R - hf.z0) / def.cell));
+      const j1 = Math.min(nz - 1, Math.ceil((Math.max(az, bz) + R - hf.z0) / def.cell));
+      for (let j = j0; j <= j1; j++) {
+        const z = hf.z0 + j * def.cell;
+        for (let i = i0; i <= i1; i++) {
+          const x = hf.x0 + i * def.cell;
+          const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / L2));
+          const d = Math.hypot(x - (ax + dx * t), z - (az + dz * t));
+          if (d > R) continue;
+          const k = j * nx + i;
+          const band = 1 - smooth(halfW - 0.6, halfW + 1.2, d);
+          const rut = Math.exp(-(((d - 0.95) / 0.32) ** 2)) * 0.6;
+          // keep the strongest of overlapping segments (no double darkening at joints)
+          const mark = Math.max(band * 0.075 + rut * 0.05, 0);
+          const key = k;
+          if ((trackMark[key] ?? 0) >= mark) continue;
+          albedo[k] *= (1 - mark) / (1 - (trackMark[key] ?? 0));
+          tint[k] = tint[k] * (1 - band * 0.5) - band * 0.12;
+          trackMark[key] = mark;
+        }
+      }
+    }
+  }
+
   // --- ambient occlusion / cavity from height relative to local average ---
   const blur = boxBlur(H, nx, nz, Math.max(2, Math.round(3 / def.cell)));
   for (let k = 0; k < H.length; k++) {
@@ -297,6 +345,32 @@ export function generateTerrain(def: MapDef): TerrainData {
   }
 
   return { hf, albedo, tint, ore, noise, craters, farHeight, mineTop };
+}
+
+/**
+ * Point symmetry about the origin within radius `rMax`: each half keeps its own detail, the halves
+ * blend across a 16 m seam at x = 0 (the blend weights sum to 1 at mirrored points, so the result
+ * is exactly symmetric).
+ */
+function symmetrize(hf: Heightfield, def: MapDef, rMax: number): void {
+  const H = hf.data;
+  const src = new Heightfield(hf.nx, hf.nz, def.cell, hf.x0, hf.z0);
+  src.data.set(H);
+  for (let j = 0; j < hf.nz; j++) {
+    const z = hf.z0 + j * def.cell;
+    for (let i = 0; i < hf.nx; i++) {
+      const x = hf.x0 + i * def.cell;
+      const w = 1 - smooth(-8, 8, x);
+      if (w >= 1) continue;
+      const r = Math.hypot(x, z);
+      if (r > rMax + 6) continue;
+      // fade the mirroring out over 6 m past rMax (local passes)
+      const f = r <= rMax ? 1 : 1 - (r - rMax) / 6;
+      const k = j * hf.nx + i;
+      const mirrored = w * H[k] + (1 - w) * src.heightAt(-x, -z);
+      H[k] = H[k] * (1 - f) + mirrored * f;
+    }
+  }
 }
 
 /** 1 inside a levelled flat, fading to 0 across its soft edge */

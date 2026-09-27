@@ -15,7 +15,7 @@ import { updateVitals, leakRate } from './Vitals';
 import { NetBridge } from './NetBridge';
 import { gs, setGameLang } from './Strings';
 import { MODES, HEROES, ModeId, HeroId, HeroDef, Settings, HudState, HudEvent, ModeInfo, ScreenMarker, Blip, Action, WeaponId, AbilityId, MatchResult } from './Types';
-import { WEAPONS } from '../weapons/WeaponDefs';
+import { WEAPONS, adsCapable, coneOf } from '../weapons/WeaponDefs';
 import { audio, Sfx, Loop } from '../audio/Audio';
 import { TEAM_COLORS } from '../world/Builder';
 
@@ -30,6 +30,8 @@ export interface DamageSpec {
   suitMul: number;
   silent?: boolean;
   noCredit?: boolean;
+  /** seconds of slow applied with the hit (foam) — rides on client claims so the host applies it */
+  slow?: number;
 }
 
 export interface GameHooks {
@@ -54,7 +56,8 @@ const SERVITOR_DEF: HeroDef = {
   speed: 4.9,
   weapon: 'pulse',
   sealants: 0,
-  builds: [{ id: 'servitor', name: { ru: 'Сервитор', en: 'Servitor' }, desc: { ru: '', en: '' }, unlock: 1, mods: { damage: 0.55, fireRate: 0.8 } }],
+  // two servitors used to out-damage a DPS hero (2 × 69 dps): toned down to ~50 dps each
+  builds: [{ id: 'servitor', name: { ru: 'Сервитор', en: 'Servitor' }, desc: { ru: '', en: '' }, unlock: 1, mods: { damage: 0.42, fireRate: 0.8 } }],
 };
 const SERVITOR_TOUGH_DEF: HeroDef = { ...SERVITOR_DEF, health: 190, suit: 90 };
 const GRAPPLE_RANGE = 42;
@@ -150,7 +153,30 @@ export class Game {
     // attachModel ran before `local` was set: apply the first-person body mode now
     this.local.model?.setFirstPerson(!this.thirdPerson);
     this.refreshHighlights();
+    // engineers' salvage passive: destroying an enemy device patches you up (authority side)
+    const sumDamage = this.summons.damage.bind(this.summons);
+    this.summons.damage = (sm, amount, attacker) => {
+      const was = !sm.dead;
+      sumDamage(sm, amount, attacker);
+      if (was && sm.dead && attacker && this.isAuthority) this.onSalvage(attacker);
+    };
   }
+
+  /** engineer role passive: +40 HP and a sliver of ult for every enemy device / servitor destroyed */
+  private onSalvage(f: Fighter): void {
+    const boss = f.summonOf >= 0 ? this.fighterById(f.summonOf) : f;
+    if (!boss || !boss.alive || boss.rolePassive !== 'salvage') return;
+    this.heal(boss, boss, 40, 15, true);
+    boss.ultCharge = Math.min(boss.ultCostEff, boss.ultCharge + boss.ultCostEff * 0.04);
+    if (boss === this.local) this.event({ type: 'toast', text: gs('salvage'), kind: 'good' });
+  }
+
+  /** knockback that also reaches fighters simulated on another peer (net relays it) */
+  push(f: Fighter, v: THREE.Vector3): void {
+    if (f.control !== 'remote') f.body.impulse(v);
+    else this.onRemotePush?.(f, v);
+  }
+  onRemotePush: ((f: Fighter, v: THREE.Vector3) => void) | null = null;
 
   /** fighters that are real players or bots (not summoned servitors) */
   get players(): Fighter[] {
@@ -383,6 +409,8 @@ export class Game {
     let amt = d.amount;
     if (amt <= 0) return;
     const a = d.attacker;
+    amt *= this.passiveDamageMul(d, t, a);
+    if (d.slow && d.slow > 0 && a && this.areEnemies(a, t)) t.slowT = Math.max(t.slowT, d.slow * (t.rolePassive === 'heavy' ? 0.5 : 1));
     // force field absorbs first
     if (t.shieldHp > 0 && d.source !== 'suffocation' && d.source !== 'radiation') {
       const ab = Math.min(t.shieldHp, amt);
@@ -413,6 +441,15 @@ export class Game {
         t.assistMap.set(a.id, this.time);
       }
     }
+    // signature passives that react to hits
+    if (a && a !== t && this.areEnemies(a, t)) {
+      if (a.passive === 'spotter' && d.part === 'head' && !d.silent) t.revealedT = Math.max(t.revealedT, 3);
+      if (a.passive === 'dronelink' && d.source === 'burst') {
+        t.markedBy = a.id;
+        t.markT = 2.5;
+        t.revealedT = Math.max(t.revealedT, 1.5);
+      }
+    }
     if (a && a !== t) {
       a.stats.damage += amt;
       a.ultCharge = Math.min(a.ultCostEff, a.ultCharge + amt * (t.summonOf >= 0 ? 0.5 : 1));
@@ -433,6 +470,26 @@ export class Game {
     }
     this.onDamageApplied?.(d, killed);
     if (killed) this.kill(t, a, d);
+  }
+
+  /**
+   * Damage multipliers from signature passives (authority): Reactor's fusion plating while the suit
+   * holds, Phantom's backstab, Hive's drones against marked targets.
+   */
+  passiveDamageMul(d: DamageSpec, t: Fighter, a: Fighter | null): number {
+    let m = 1;
+    const env = d.source === 'suffocation' || d.source === 'radiation' || d.source === 'fall';
+    if (t.passive === 'fusion' && !env && t.suitFrac >= 0.5) m *= 0.8;
+    if (a && a !== t && this.areEnemies(a, t)) {
+      if (a.passive === 'backstab' && d.dir && !env) {
+        // shot travels the way the target faces → it came from behind
+        const fwd = t.body.forward(_w);
+        const hd = _v.set(d.dir.x, 0, d.dir.z);
+        if (hd.lengthSq() > 1e-4 && hd.normalize().dot(_w.setY(0).normalize()) > 0.4) m *= 1.25;
+      }
+      if (a.passive === 'dronelink' && t.markedBy === a.id && t.markT > 0 && (d.source === 'huntdrone' || d.source === 'turret' || d.source === 'kamikaze' || d.source === 'servitor')) m *= 1.25;
+    }
+    return m;
   }
 
   /** extra hooks used by the network layer */
@@ -479,6 +536,7 @@ export class Game {
       if (a && a !== t) {
         a.stats.score += 25;
         if (a === this.local) this.xp(a, 25, 'servitorKill');
+        this.onSalvage(a);
       }
       const c = t.body.center(new THREE.Vector3());
       this.effects.explosion(c, 1.4, 0xffa050, false);
@@ -510,6 +568,8 @@ export class Game {
       const dist = killer.body.pos.distanceTo(t.body.pos);
       killer.stats.longestKill = Math.max(killer.stats.longestKill, dist);
       killer.ultCharge = Math.min(killer.ultCostEff, killer.ultCharge + 150);
+      // melee role passive: eliminations restore health
+      if (killer.rolePassive === 'bloodrush' && killer.alive) this.heal(killer, killer, 50, 0, true);
       if (killer.flags.has('lungeReset')) {
         const l = killer.abilities.find((x) => x.id === 'lunge');
         if (l) {
@@ -620,7 +680,8 @@ export class Game {
     this.effects.muzzle(muzzle, f.body.viewDir(_v), def.color, def.id === 'rail' || def.id === 'nuke' ? 1.6 : def.id === 'twinarc' ? 0.6 : 1);
     if (f === this.local) {
       this.viewmodel.fired(def.recoil);
-      this.recoilPitch += def.recoil * (f.intent.aim ? 0.6 : 1);
+      // the real aim punch is applied by Combat.kick; this is only a short visual camera snap
+      this.recoilPitch += def.recoil * (f.intent.aim ? 0.3 : 0.5);
       this.camKick = Math.min(1, this.camKick + def.recoil * 4);
     }
     if (def.id === 'nuke') this.announce('nukeReady', f);
@@ -684,7 +745,22 @@ export class Game {
   onPickup(f: Fighter, kind: string, pos: THREE.Vector3, index = -1): void {
     this.netHook?.('pick', { i: index, f: f.id });
     this.sound(kind === 'o2' ? 'o2_refill' : 'pickup', f, 0.9);
-    this.effects.add.spawn({ pos: pos.clone().add(new THREE.Vector3(0, 0.8, 0)), life: 0.4, size0: 0.5, size1: 2.5, color0: 0xffffff, alpha0: 0.6, sprite: 3 });
+    const col = kind === 'o2' ? 0x7dd8ff : kind === 'armor' ? 0xffd24a : kind === 'ammo' ? 0xff8a3a : 0x9dff7a;
+    this.effects.add.spawn({ pos: pos.clone().add(new THREE.Vector3(0, 0.8, 0)), life: 0.4, size0: 0.5, size1: 2.5, color0: col, alpha0: 0.7, sprite: 3 });
+    if (f === this.local) this.pickupFeedback(f, kind);
+  }
+
+  /** HUD line for the local player's pickup: what it actually gave */
+  pickupFeedback(f: Fighter, kind: string): void {
+    if (f !== this.local) return;
+    const g = this.match.lastGain;
+    const parts: string[] = [];
+    if (g.hp > 0) parts.push(`+${g.hp} ${gs('hpShort')}`);
+    if (g.suit > 0) parts.push(`+${g.suit}% ${gs('suitShort')}`);
+    if (g.o2 > 0) parts.push(`+${g.o2}% O₂`);
+    if (g.ult > 0) parts.push(`+${g.ult}% ${gs('ultShort')}`);
+    const title = gs('pk_' + kind);
+    this.event({ type: 'toast', text: parts.length ? `${title} · ${parts.join(' · ')}` : title, kind: 'good' });
   }
 
   onPodIncoming(pos: THREE.Vector3, weapon?: WeaponId): void {
@@ -751,6 +827,7 @@ export class Game {
       if (locked && this.pressedAction('aim')) this.aimToggle = !this.aimToggle;
       it.aim = this.aimToggle;
     } else it.aim = locked && this.isAction('aim');
+    it.altPressed = locked && this.pressedAction('aim');
     it.reload = locked && this.pressedAction('reload');
     it.ability1 = locked && this.pressedAction('ability1');
     it.ability2 = locked && this.pressedAction('ability2');
@@ -766,7 +843,8 @@ export class Game {
     if (locked && this.pressedAction('view')) this.setThirdPerson(!this.thirdPerson);
     this.hooks.scoreboard(this.isAction('scoreboard'));
     // mouse look
-    const ads = it.aim ? this.settings.adsSensitivity * (f.activeWeapon.def.zoom < 0.5 ? f.activeWeapon.def.zoom * 1.6 : 1) : 1;
+    const wd = f.activeWeapon.def;
+    const ads = it.aim && adsCapable(wd) ? this.settings.adsSensitivity * (wd.zoom < 0.5 ? wd.zoom * 1.6 : 1) : 1;
     const sens = 0.0021 * this.settings.sensitivity * ads;
     this.lookDX = locked ? this.input.mouseDX : 0;
     this.lookDY = locked ? this.input.mouseDY : 0;
@@ -821,6 +899,7 @@ export class Game {
         me.intent.ability1 = me.intent.ability2 = me.intent.ultimate = false;
         me.intent.reload = me.intent.sealant = me.intent.toggleMag = false;
         me.intent.grapple = me.intent.melee = me.intent.prone = me.intent.roll = false;
+        me.intent.altPressed = false;
         me.intent.slot = -1;
       }
     }
@@ -902,18 +981,20 @@ export class Game {
     }
     // movement speed modifiers
     const w = f.activeWeapon;
-    b.speedMul = (f.def.speed / 4.4) * w.def.moveMul * (f.mods.speed ?? 1) * (f.slowT > 0 ? 0.6 : 1) * (f.cloakT > 0 ? 1.2 : 1) * (it.aim && w.def.id === 'rail' ? 0.55 : 1) * (f.sealT > 0 ? 0.6 : 1) * (f.moonbladeT > 0 ? 1.15 : 1) * (f.deflectT > 0 ? 0.85 : 1);
+    const slowK = f.rolePassive === 'heavy' ? 0.8 : 0.6; // tanks shrug off half of a slow
+    const scoped = it.aim && w.def.alt === 'scope';
+    b.speedMul = (f.def.speed / 4.4) * w.def.moveMul * (f.mods.speed ?? 1) * (f.slowT > 0 ? slowK : 1) * (f.cloakT > 0 ? 1.2 : 1) * (scoped ? 0.55 : it.aim && adsCapable(w.def) ? 0.85 : 1) * (f.sealT > 0 ? 0.6 : 1) * (f.moonbladeT > 0 ? 1.15 : 1) * (f.deflectT > 0 ? 0.85 : 1);
+    this.tuneBody(f);
     if (f.empT > 0) b.jetFuel = Math.min(b.jetFuel, 0);
     if (it.grapple) this.useGrapple(f);
     if (it.melee && f.alive) this.combat.quickMelee(f);
     if (b.grapple && f.empT > 0) b.stopGrapple(true);
-    // two physics substeps for stable contacts
+    // two physics substeps for stable contacts; events accumulate over the whole tick
     const half = dt / 2;
     const yaw = it.yaw;
     const pitch = it.pitch;
-    it.yaw = yaw;
-    it.pitch = pitch;
-    b.step(half, it);
+    b.clearEvents();
+    b.step(half, it, true);
     it.yaw = 0;
     it.pitch = 0;
     // "pressed" inputs fire once per tick, not once per substep
@@ -921,10 +1002,13 @@ export class Game {
     const pr = it.prone;
     const ro = it.roll;
     it.jumpPressed = it.prone = it.roll = false;
-    b.step(half, it);
+    b.step(half, it, true);
     it.jumpPressed = jp;
     it.prone = pr;
     it.roll = ro;
+    // keep this tick's look deltas readable (recoil compensation in Combat)
+    it.yaw = yaw;
+    it.pitch = pitch;
     // bounds: gentle push back into the arena
     const bd = this.world.physics.bounds;
     if (b.pos.x < bd.minX) b.vel.x += (bd.minX - b.pos.x) * 4 * dt;
@@ -944,10 +1028,32 @@ export class Game {
     this.abilities.tick(f, dt);
     if (this.isAuthority) updateVitals(this, f, dt);
     else if (f === this.local) {
-      // clients predict their own status timers
-      f.cloakT = Math.max(0, f.cloakT - 0);
+      // clients run their own status timers (the host only sends fresh values); without this an EMP
+      // or slow received from the host never wore off on the client
+      f.empT = Math.max(0, f.empT - dt);
+      f.slowT = Math.max(0, f.slowT - dt);
+      f.revealedT = Math.max(0, f.revealedT - dt);
+      f.firingVisual = Math.max(0, f.firingVisual - dt);
+      f.spawnProtect = Math.max(0, f.spawnProtect - dt);
+      f.markT = Math.max(0, f.markT - dt);
+      f.lastDamageT += dt;
     }
     this.fighterEvents(f);
+  }
+
+  /** Per-hero movement tuning (signature / role passives) applied to the body every tick. */
+  private tuneBody(f: Fighter): void {
+    const b = f.body;
+    const pas = f.passive;
+    const role = f.rolePassive;
+    // Condor's afterburner: 60 % faster refuel, and the pack refuels slowly while coasting in the air
+    b.jetRegen = pas === 'afterburner' ? 0.8 : 0.5;
+    b.jetRegenAir = pas === 'afterburner' ? 0.35 : 0;
+    // Blade's moon step: one extra mid-air jump
+    b.airJumps = pas === 'moonstep' ? 1 : 0;
+    // melee role: better air control; scouts: faster mag-boot walking
+    b.airControl = role === 'bloodrush' ? 3.1 : 2.4;
+    b.magSpeedMul = role === 'lightstep' ? 1.25 : 1;
   }
 
   /** Grappling hook (universal gadget): fire / release. */
@@ -1010,7 +1116,8 @@ export class Game {
     }
     if (b.grapple && Math.random() < 0.5) this.effects.jet(this.packOf(f), _v.copy(b.vel).normalize().negate());
     if (ev.footstep) {
-      this.sound(b.onMetal ? 'footstep_metal' : 'footstep', f, f === this.local ? 0.5 : 0.8);
+      // scouts (light step) are much harder to hear
+      this.sound(b.onMetal ? 'footstep_metal' : 'footstep', f, f === this.local ? 0.5 : f.rolePassive === 'lightstep' ? 0.3 : 0.8);
       if (!b.onMetal && b.grounded) {
         this.effects.dust(b.pos, 3, 0.6);
         f.lastStepFoot ^= 1;
@@ -1028,8 +1135,10 @@ export class Game {
           this.viewmodel.land(ev.landed);
         }
       }
-      // hard landings hurt a little (lunar gravity makes it rare)
-      if (ev.landed > 9 && this.isAuthority) this.damage({ target: f, attacker: null, amount: (ev.landed - 9) * 8, source: 'fall', part: 'legs', dir: null, point: null, suitMul: 0.5, silent: true });
+      // hard landings hurt a little: in 1/6 g you need a ~25 m drop to land at 9 m/s (scouts: ~37 m).
+      // Reactor's slam dive is a deliberate landing and never hurts.
+      const safe = 9 + (f.rolePassive === 'lightstep' ? 2 : 0);
+      if (ev.landed > safe && this.isAuthority && f.slam <= 0 && f.slamGrace <= 0) this.damage({ target: f, attacker: null, amount: (ev.landed - safe) * 8, source: 'fall', part: 'legs', dir: null, point: null, suitMul: 0.5, silent: true });
     }
     if (ev.jumped) this.sound('jump', f, f === this.local ? 0.6 : 0.8);
     if (ev.jetStart) this.sound('jet_start', f, 0.7);
@@ -1126,7 +1235,7 @@ export class Game {
       const hfov = THREE.MathUtils.degToRad(this.settings.fov);
       let vfov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(hfov / 2) / (16 / 9)));
       const w = me.activeWeapon;
-      const adsK = me.intent.aim && me.alive ? 1 : 0;
+      const adsK = me.intent.aim && me.alive && adsCapable(w.def) ? 1 : 0;
       this.adsBlend += (adsK - this.adsBlend) * Math.min(1, dt * 12);
       vfov *= 1 - this.adsBlend * (1 - w.def.zoom);
       if (Math.abs(cam.fov - vfov) > 0.01 || cam.aspect !== aspect) {
@@ -1147,7 +1256,7 @@ export class Game {
         charge: w.charge,
         aspect,
         fov: 58,
-        ads: me.intent.aim,
+        ads: me.intent.aim && adsCapable(w.def),
         sprint: false,
         crouch: b.crouching ? 1 : 0,
         switching: me.switchT > 0,
@@ -1353,6 +1462,7 @@ export class Game {
     s.grapple = { cooldown: me.grappleCd > 0 ? me.grappleCd / GRAPPLE_CD : 0, ready: me.grappleCd <= 0, active: !!b.grapple };
     s.stance = b.stance;
     s.forceField = me.shieldHp > 0 ? Math.min(1, me.shieldHp / 260) : 0;
+    s.passive = this.passiveHud(me);
     const sums: NonNullable<HudState['summons']> = [];
     for (const o of this.fighters) if (o.summonOf === me.id && o.alive) sums.push({ kind: 'servitor', hp: o.health / o.maxHealth });
     for (const d of this.summons.byOwner(me.id)) {
@@ -1367,6 +1477,16 @@ export class Game {
     s.reserve = w.reserve;
     s.reload = w.reloadT > 0 ? 1 - w.reloadT / Math.max(0.01, w.def.reload) : -1;
     s.charge = w.charge;
+    s.chargeKind = 'charge';
+    if (w.def.heatPerShot > 0) {
+      // riveter: heat gauge instead of reserve ammo; the vent / overheat shows as the reload bar
+      s.charge = w.ventT > 0 ? Math.max(0.02, w.heat) : w.heat;
+      s.chargeKind = 'heat';
+      s.reload = w.ventT > 0 ? 1 - Math.min(1, w.ventT / Math.max(0.01, w.def.overheat)) : -1;
+    } else if (w.def.alt === 'slug' || w.def.alt === 'glob') {
+      s.charge = w.altCd > 0 ? 1 - w.altCd / Math.max(0.01, w.def.altCooldown) : 1;
+      s.chargeKind = 'alt';
+    }
     s.slots = [
       { key: this.keyLabel('weapon1'), id: me.weapon.id, ammo: me.weapon.ammo, active: me.slot === 0 },
       { key: this.keyLabel('weapon2'), id: me.superWeapon ? me.superWeapon.id : null, ammo: me.superWeapon?.ammo ?? 0, active: me.slot === 1 },
@@ -1378,7 +1498,7 @@ export class Game {
     s.scope = this.adsBlend > 0.5 ? (w.id === 'rail' ? 'rail' : w.id === 'nuke' ? 'nuke' : w.id === 'helios' ? 'designator' : 'none') : 'none';
     s.cloaked = me.cloakT > 0;
     s.invulnerable = me.invulnT > 0;
-    const spreadRad = (me.intent.aim ? w.def.spreadAds : w.def.spreadHip) + w.spread + (b.grounded ? 0 : 0.01) + (b.moveSpeed > 2 ? 0.008 : 0);
+    const spreadRad = coneOf(w.def, this.combat.aimState(me, w));
     s.spread = 6 + (spreadRad / Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) * 540;
     s.hitmarker = this.settings.hitMarkers ? this.hitmarker : 0;
     s.hitHead = this.hitHead;
@@ -1430,6 +1550,11 @@ export class Game {
       }
     }
     for (const cp of this.match.controlPoints) blips.push({ x: cp.pos.x, z: cp.pos.z, kind: 'cp', label: cp.id, team: cp.owner });
+    // ready pickups nearby (so players learn where the o2 / armour / power cells are)
+    for (const pk of this.match.pickups) {
+      if (pk.t > 0 || Math.abs(pk.pos.x - b.pos.x) > 60 || Math.abs(pk.pos.z - b.pos.z) > 60) continue;
+      blips.push({ x: pk.pos.x, z: pk.pos.z, kind: 'pickup', label: pk.kind, height: pk.pos.y - b.pos.y });
+    }
     if (this.match.pod) {
       const pp = this.match.pod.landed ? this.match.pod.mesh.position : this.match.pod.pos;
       blips.push({ x: pp.x, z: pp.z, kind: 'pod' });
@@ -1498,6 +1623,43 @@ export class Game {
     s.fps = this.fps;
     s.spectating = null;
     return s;
+  }
+
+  /** HUD chip for the signature passive: is it doing its thing right now? */
+  private passiveHud(me: Fighter): NonNullable<HudState['passive']> {
+    const b = me.body;
+    let active = true;
+    let value = 1;
+    switch (me.passive) {
+      case 'afterburner':
+        active = b.jetFuel < 0.999 && !b.jetting;
+        value = b.jetFuel;
+        break;
+      case 'moonstep':
+        // lit while the second jump is available
+        active = b.grounded || b.airJumpsLeft > 0;
+        value = active ? 1 : 0;
+        break;
+      case 'fusion':
+        active = me.suitFrac >= 0.5;
+        value = me.suitFrac;
+        break;
+      case 'backstab':
+      case 'spotter':
+      case 'blastproof':
+        active = true;
+        break;
+      case 'lifelink':
+      case 'fieldrepair':
+        value = this.fighters.filter((o) => o !== me && o.alive && !this.areEnemies(me, o) && o.body.pos.distanceTo(b.pos) < (me.passive === 'lifelink' ? 12 : 10)).length;
+        active = value > 0;
+        break;
+      case 'dronelink':
+        value = this.fighters.filter((o) => o.alive && o.markedBy === me.id && o.markT > 0).length;
+        active = value > 0;
+        break;
+    }
+    return { id: me.passive, active, value };
   }
 
   private project(p: THREE.Vector3): { x: number; y: number; on: boolean; angle: number } {

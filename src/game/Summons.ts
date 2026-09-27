@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import type { Game } from './Game';
 import type { Fighter } from './Fighter';
 import { Collider } from '../core/Physics';
-import { toonMat, glowMat } from '../render/Toon';
 import { LAYER_NO_OUTLINE } from '../render/Pipeline';
 import { HeroModel } from '../entities/HeroModel';
+import { buildSummonMesh } from './SummonMeshes';
 
 export type SummonKind = 'turret' | 'huntdrone' | 'spotdrone' | 'kamikaze' | 'barricade' | 'decoy';
 export const SUMMON_KINDS: SummonKind[] = ['turret', 'huntdrone', 'spotdrone', 'kamikaze', 'barricade', 'decoy'];
@@ -60,8 +60,9 @@ export class Summons {
     const g = this.game;
     const flags = opts.flags ?? [];
     const teamCol = owner.team === 1 ? 0xffa033 : owner.team === 0 ? 0x4dd8ff : new THREE.Color(owner.def.color).getHex();
-    let mesh: THREE.Object3D;
-    let head: THREE.Object3D | undefined;
+    const built = kind === 'decoy' ? null : buildSummonMesh(kind, teamCol);
+    let mesh: THREE.Object3D = built ? built.mesh : new THREE.Group();
+    const head: THREE.Object3D | undefined = built?.head;
     let hp = 100;
     let life = 20;
     let radius = 0.5;
@@ -69,33 +70,6 @@ export class Summons {
     let model: HeroModel | undefined;
     switch (kind) {
       case 'turret': {
-        const grp = new THREE.Group();
-        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 0.35, 10), toonMat(0x3b4150, { spec: 0.7 }));
-        base.position.y = 0.17;
-        const legs = new THREE.Group();
-        for (let i = 0; i < 3; i++) {
-          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.7), toonMat(0x5b6273, { spec: 0.6 }));
-          const a = (i / 3) * Math.PI * 2;
-          leg.position.set(Math.cos(a) * 0.35, 0.08, Math.sin(a) * 0.35);
-          leg.rotation.y = -a + Math.PI / 2;
-          legs.add(leg);
-        }
-        const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.4, 10), toonMat(0xb8bec8, { spec: 0.9 }));
-        neck.position.y = 0.55;
-        head = new THREE.Group();
-        const hbox = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.3, 0.55), toonMat(0xff9f43, { spec: 0.6 }));
-        const b1 = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.6, 8), toonMat(0x2a2e38, { spec: 0.9 }));
-        b1.rotation.x = Math.PI / 2;
-        b1.position.set(0.1, 0, -0.45);
-        const b2 = b1.clone();
-        b2.position.x = -0.1;
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), glowMat(teamCol, 4));
-        eye.position.set(0, 0.06, -0.28);
-        eye.layers.set(LAYER_NO_OUTLINE);
-        head.add(hbox, b1, b2, eye);
-        head.position.y = 0.85;
-        grp.add(base, legs, neck, head);
-        mesh = grp;
         hp = 260;
         life = flags.includes('longTurret') ? 45 : 30;
         radius = 0.55;
@@ -105,58 +79,12 @@ export class Summons {
       case 'huntdrone':
       case 'spotdrone':
       case 'kamikaze': {
-        const grp = new THREE.Group();
-        const col = kind === 'huntdrone' ? 0xe6e14d : kind === 'spotdrone' ? 0x4db8ff : 0xff5a3a;
-        const body = new THREE.Mesh(new THREE.SphereGeometry(0.22, 14, 10), toonMat(0xe8e6e0, { spec: 0.8 }));
-        body.scale.set(1, 0.6, 1.2);
-        const band = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.03, 6, 20), toonMat(col, { spec: 0.6 }));
-        band.rotation.x = Math.PI / 2;
-        grp.add(body, band);
-        for (let i = 0; i < 4; i++) {
-          const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-          const arm = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.03, 0.05), toonMat(0x3b4150));
-          arm.position.set(Math.cos(a) * 0.25, 0.02, Math.sin(a) * 0.25);
-          arm.rotation.y = -a;
-          const thr = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.05, 0.06, 10), glowMat(col, 2.5));
-          thr.position.set(Math.cos(a) * 0.42, 0.0, Math.sin(a) * 0.42);
-          thr.layers.set(LAYER_NO_OUTLINE);
-          grp.add(arm, thr);
-        }
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), glowMat(kind === 'kamikaze' ? 0xff3020 : teamCol, 5));
-        eye.position.set(0, -0.02, -0.24);
-        eye.layers.set(LAYER_NO_OUTLINE);
-        grp.add(eye);
-        if (kind === 'huntdrone') {
-          const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.3, 8), toonMat(0x2a2e38, { spec: 0.9 }));
-          gun.rotation.x = Math.PI / 2;
-          gun.position.set(0, -0.1, -0.2);
-          grp.add(gun);
-        }
-        grp.scale.setScalar(kind === 'kamikaze' ? 0.8 : 1);
-        mesh = grp;
         hp = kind === 'huntdrone' ? (flags.includes('strongHunter') ? 120 : 85) : kind === 'spotdrone' ? 70 : 40;
         life = kind === 'huntdrone' ? (flags.includes('strongHunter') ? 16 : 12) : kind === 'spotdrone' ? 10 : 8;
         radius = 0.4;
         break;
       }
       case 'barricade': {
-        const grp = new THREE.Group();
-        const plate = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.6, 0.35), toonMat(0x8d94a2, { spec: 0.7 }));
-        plate.position.y = 0.8;
-        plate.castShadow = true;
-        plate.receiveShadow = true;
-        const trim = new THREE.Mesh(new THREE.BoxGeometry(3.3, 0.12, 0.42), toonMat(teamCol === 0x4dd8ff ? 0x2f7cf6 : 0xff6a1f, { spec: 0.6 }));
-        trim.position.y = 1.62;
-        const glow = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.06, 0.37), glowMat(teamCol, 2.5));
-        glow.position.y = 1.2;
-        glow.layers.set(LAYER_NO_OUTLINE);
-        for (const x of [-1.4, 1.4]) {
-          const foot = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 1.0), toonMat(0x3b4150, { spec: 0.6 }));
-          foot.position.set(x, 0.12, 0);
-          grp.add(foot);
-        }
-        grp.add(plate, trim, glow);
-        mesh = grp;
         hp = 700;
         life = 25;
         radius = 1.6;

@@ -50,6 +50,23 @@ export interface MapDef {
   sun: { azimuth: number; elevation: number };
   earth: { azimuth: number; elevation: number; size: number };
   tint: number; // regolith base color
+  /** team maps: terrain relief made point-symmetric about the centre (fair routes for both sides) */
+  symmetric?: boolean;
+  /** worn haul roads / rover tracks (polylines in x,z) baked into the regolith albedo */
+  tracks?: [number, number][][];
+}
+
+/** a polyline plus its 180° rotated copy (team maps are point-symmetric) */
+function sym(...lines: [number, number][][]): [number, number][][] {
+  const out: [number, number][][] = [];
+  for (const l of lines) out.push(l, l.map(([x, z]) => [-x, -z] as [number, number]));
+  return out;
+}
+/** closed ring road */
+function ring(r: number, n = 28, a0 = 0): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i <= n; i++) out.push([Math.cos(a0 + (i / n) * Math.PI * 2) * r, Math.sin(a0 + (i / n) * Math.PI * 2) * r]);
+  return out;
 }
 
 const D = Math.PI / 180;
@@ -85,6 +102,15 @@ export const MAPS: Record<MapId, MapDef> = {
     sun: { azimuth: 35 * D, elevation: 17 * D },
     earth: { azimuth: 215 * D, elevation: 32 * D, size: 1 },
     tint: 0xaeaaa2,
+    symmetric: true,
+    tracks: sym(
+      // outpost gate → north haul ramp head
+      [[-32, 0], [-26, 8], [-15, 17], [-4, 22], [3.5, 21]],
+      // outpost → relay lanes
+      [[-33, -6], [-26, -18], [-13, -26], [-6, -28]],
+      // relay ↔ relay rim road
+      [[-10, 26], [-14, 22], [-19, 13], [-23, 0]],
+    ),
   },
   quarry: {
     id: 'quarry',
@@ -115,6 +141,8 @@ export const MAPS: Record<MapId, MapDef> = {
     sun: { azimuth: 120 * D, elevation: 21 * D },
     earth: { azimuth: 330 * D, elevation: 40 * D, size: 1.1 },
     tint: 0xaba8a1,
+    // ring road around the pit linking the eight complexes, spurs down the three haul ramps
+    tracks: [ring(45, 40, 0.1), ...[20, 150, 270].map((d) => [0, 1].map((k) => [Math.cos((d * Math.PI) / 180) * (47 - k * 33), Math.sin((d * Math.PI) / 180) * (47 - k * 33)] as [number, number]))],
   },
   front: {
     id: 'front',
@@ -148,6 +176,16 @@ export const MAPS: Record<MapId, MapDef> = {
     sun: { azimuth: 70 * D, elevation: 14 * D },
     earth: { azimuth: 250 * D, elevation: 36 * D, size: 1.25 },
     tint: 0xb0aba2,
+    symmetric: true,
+    tracks: sym(
+      // fort gate → A yard → west haul ramp
+      [[-75, 0], [-66, -4], [-58, -12], [-46, -20], [-34, -12], [-31, -4], [-28, 0]],
+      // fort → north flank (spaceport) and south flank (lab)
+      [[-74, 5], [-66, 26], [-48, 40], [-28, 44]],
+      [[-74, -5], [-68, -26], [-52, -40], [-28, -44]],
+      // rim road between the bridges' landings
+      [[-14, 36], [-26, 26], [-33, 14]],
+    ),
   },
 };
 

@@ -45,6 +45,7 @@ export class Abilities {
     // passive ult charge
     if (f.alive && f.ult.active <= 0) f.ultCharge = Math.min(f.ultCostEff, f.ultCharge + dt * 6);
     if (f.grappleCd > 0) f.grappleCd -= dt;
+    if (f.slamGrace > 0) f.slamGrace -= dt;
     if (f.meleeCd > 0) f.meleeCd -= dt;
     if (f.meleeT > 0) f.meleeT -= dt;
     if (!f.alive) return;
@@ -258,9 +259,10 @@ export class Abilities {
       }
       case 'lunge': {
         const fwd = b.viewDir(new THREE.Vector3());
-        fwd.y = Math.max(-0.2, Math.min(0.35, fwd.y));
+        // mostly horizontal: in 1/6 g a steep lunge would sail for seconds
+        fwd.y = Math.max(-0.15, Math.min(0.2, fwd.y));
         fwd.normalize();
-        b.impulse(fwd.multiplyScalar(14).addScaledVector(b.up, 1.2));
+        b.impulse(fwd.multiplyScalar(14).addScaledVector(b.up, 0.8));
         f.lungeT = 0.4;
         this.lungeHits.set(f.id, new Set());
         g.sound('jet_start', f, 0.9);
@@ -322,9 +324,23 @@ export class Abilities {
       f.lungeT -= dt;
       const hits = this.lungeHits.get(f.id);
       const c = b.center(new THREE.Vector3());
+      // suit thrusters brake at the end of the dash (in 1/6 g a 14 m/s lunge would sail 15 m past)
+      if (f.lungeT <= 0) {
+        const hs = Math.hypot(b.vel.x, b.vel.z);
+        if (hs > 7) {
+          b.vel.x *= 7 / hs;
+          b.vel.z *= 7 / hs;
+        }
+      }
       for (const o of g.fighters) {
         if (!o.alive || !g.areEnemies(f, o) || hits?.has(o.id)) continue;
         if (o.hitbox(1, _v).distanceTo(c) < 2.2) {
+          // the first cut stops the dash on the target (follow up with the katana)
+          if (!hits?.size) {
+            b.vel.x *= 0.3;
+            b.vel.z *= 0.3;
+            if (b.vel.y > 1) b.vel.y = 1;
+          }
           hits?.add(o.id);
           g.damage({ target: o, attacker: f, amount: 55 * (f.mods.damage ?? 1), source: 'lunge', part: 'body', dir: b.vel.clone().normalize(), point: _v.clone(), suitMul: 1.1 });
           g.effects.impact(_v, b.vel.clone().normalize().negate(), 'energy', 0x39e3a8);
@@ -377,6 +393,7 @@ export class Abilities {
       if (f.slam < 1.25 && !b.grounded) b.vel.addScaledVector(b.up, -40 * dt);
       if (b.grounded && f.slam < 1.3) {
         f.slam = 0;
+        f.slamGrace = 0.3;
         const pos = b.pos.clone();
         const heavy = f.flags.has('heavySlam');
         g.combat.explode({ pos, radius: heavy ? 7.5 : 6.5, damage: 55, owner: f.id, team: f.team, source: 'slam', kind: 'slam', knock: heavy ? 17 : 10, emp: 2, selfDamage: 0, suitMul: 1.2 });

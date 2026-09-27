@@ -49,8 +49,8 @@ function mixW(a: Wts, b: Wts, f: number, I: (n: string) => number): { bi: number
   return { bi, bw };
 }
 
-const SEG_T = 22; // radial segments: torso
-const SEG_L = 14; // limbs
+const SEG_T = 20; // radial segments: torso
+const SEG_L = 12; // limbs
 
 /** smooth 0→1 between a and b */
 const sstep = (a: number, b: number, x: number): number => {
@@ -155,6 +155,38 @@ class Loft {
   }
 }
 
+/**
+ * Torso cross-sections: [height above feet (unscaled), half width, half depth, z offset] — shared
+ * with the armour kits so chest / back / abdominal plates conform to the suit.
+ */
+export const TORSO_PROFILE: [number, number, number, number][] = [
+  [0.76, 0.13, 0.12, 0.0],
+  [0.82, 0.2, 0.15, 0.0],
+  [0.9, 0.235, 0.165, 0.005],
+  [0.99, 0.232, 0.162, 0.0],
+  [1.06, 0.215, 0.155, -0.005],
+  [1.14, 0.228, 0.162, -0.01],
+  [1.23, 0.262, 0.178, -0.018],
+  [1.32, 0.3, 0.19, -0.022],
+  [1.41, 0.318, 0.192, -0.02],
+  [1.48, 0.318, 0.185, -0.012],
+  [1.54, 0.29, 0.172, -0.004],
+  [1.59, 0.235, 0.155, 0.0],
+  [1.625, 0.16, 0.13, 0.0],
+  [1.645, 0.125, 0.115, 0.0],
+];
+
+/** suit torso skin weights at an (unscaled) height: hips → spine → chest (→ neck at the collar) */
+export function torsoWeights(h: number, neck = true): Record<string, number> {
+  if (h <= 1.16) return { hips: 1 - sstep(0.95, 1.16, h), spine: sstep(0.95, 1.16, h) };
+  if (h <= 1.6 || !neck) return { spine: 1 - sstep(1.17, 1.36, h), chest: sstep(1.17, 1.36, h) };
+  return { chest: 1 - sstep(1.6, 1.66, h) * 0.6, neck: sstep(1.6, 1.66, h) * 0.6 };
+}
+
+/** limb suit radii (unscaled, before bulk): [fraction along the bone chain, radius] */
+export const ARM_RADII = { top: 0.118, upper: 0.112, lowUpper: 0.098, elbow: 0.094, fore: 0.098, lowFore: 0.085, wrist: 0.078 };
+export const LEG_RADII = { top: 0.13, thigh: 0.135, lowThigh: 0.112, knee: 0.108, calf: 0.11, lowCalf: 0.093, ankle: 0.088 };
+
 /** frame for a path segment: tangent + two perpendicular axes (ref keeps them stable) */
 function frame(t: THREE.Vector3, ref: THREE.Vector3): { n: THREE.Vector3; b: THREE.Vector3 } {
   const b = new THREE.Vector3().crossVectors(t, ref);
@@ -184,31 +216,12 @@ export function buildSuit(rig: SuitRig, shape: SuitShape): THREE.BufferGeometry 
   const I = (n: string) => rig.index(n);
 
   // ---- torso: pelvis → waist → chest → shoulders → neck base -------------------------------
-  // [height above feet (unscaled), half width, half depth, z offset]
-  const prof: [number, number, number, number][] = [
-    [0.76, 0.13, 0.12, 0.0],
-    [0.82, 0.2, 0.15, 0.0],
-    [0.9, 0.235, 0.165, 0.005],
-    [0.99, 0.232, 0.162, 0.0],
-    [1.06, 0.215, 0.155, -0.005],
-    [1.14, 0.228, 0.162, -0.01],
-    [1.23, 0.262, 0.178, -0.018],
-    [1.32, 0.3, 0.19, -0.022],
-    [1.41, 0.318, 0.192, -0.02],
-    [1.48, 0.318, 0.185, -0.012],
-    [1.54, 0.29, 0.172, -0.004],
-    [1.59, 0.235, 0.155, 0.0],
-    [1.625, 0.16, 0.13, 0.0],
-    [1.645, 0.125, 0.115, 0.0],
-  ];
+  const prof = TORSO_PROFILE;
   const up = new THREE.Vector3(0, 1, 0);
   const torso: Ring[] = prof.map(([h, w, d, z]) => {
     const y = h * s;
     // weights: hips → spine (0.95–1.16), spine → chest (1.17–1.36), chest → neck at the collar
-    let wts: Wts;
-    if (h <= 1.16) wts = { hips: 1 - sstep(0.95, 1.16, h), spine: sstep(0.95, 1.16, h) };
-    else if (h <= 1.6) wts = { spine: 1 - sstep(1.17, 1.36, h), chest: sstep(1.17, 1.36, h) };
-    else wts = { chest: 1 - sstep(1.6, 1.66, h) * 0.6, neck: sstep(1.6, 1.66, h) * 0.6 };
+    const wts: Wts = torsoWeights(h);
     return { c: new THREE.Vector3(0, y, z * s), t: up.clone(), n: new THREE.Vector3(1, 0, 0), b: new THREE.Vector3(0, 0, 1), rx: w * k * s, ry: d * k * s, ...mixW(wts, wts, 0, I), v: h * 2.2 };
   });
   L.tube(torso, SEG_T, true, false);

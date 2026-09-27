@@ -333,7 +333,7 @@ export function lightPole(b: StructureBuilder, f: Frame, h = 6): void {
 }
 
 /** Truss bridge between two points at a given deck height (world). Underside is ceiling-walkable. */
-export function bridge(b: StructureBuilder, x1: number, z1: number, x2: number, z2: number, deckY: number, width = 3.6): void {
+export function bridge(b: StructureBuilder, x1: number, z1: number, x2: number, z2: number, deckY: number, width = 3.6, o: { cover?: boolean; keep?: [number, number][] } = {}): void {
   const dx = x2 - x1;
   const dz = z2 - z1;
   const len = Math.hypot(dx, dz);
@@ -342,14 +342,18 @@ export function bridge(b: StructureBuilder, x1: number, z1: number, x2: number, 
   const l = new L(b, f);
   l.box(0, -0.25, 0, len, 0.5, width, 'grid');
   l.box(0, -0.75, 0, len, 0.5, width - 0.8, 'darkPanel');
-  // side trusses
+  // side trusses (hand rail opens onto the mid-span bay of long bridges)
   const seg = Math.max(2, Math.round(len / 3));
+  const bayGap = o.cover !== false && len >= 36 && !(o.keep ?? []).some(([kx, kz]) => Math.hypot((x1 + x2) / 2 - kx, (z1 + z2) / 2 - kz) < 5.5) ? 3.5 : 0;
   for (const s of [-1, 1]) {
     const z = (s * width) / 2;
-    l.beam([-len / 2, 1.3, z], [len / 2, 1.3, z], 0.12, 'yellow');
+    if (bayGap) {
+      l.beam([-len / 2, 1.3, z], [-bayGap, 1.3, z], 0.12, 'yellow');
+      l.beam([bayGap, 1.3, z], [len / 2, 1.3, z], 0.12, 'yellow');
+    } else l.beam([-len / 2, 1.3, z], [len / 2, 1.3, z], 0.12, 'yellow');
     for (let i = 0; i <= seg; i++) {
       const x = -len / 2 + (i * len) / seg;
-      l.beam([x, 0, z], [x, 1.3, z], 0.1, 'steel');
+      if (Math.abs(x) >= bayGap) l.beam([x, 0, z], [x, 1.3, z], 0.1, 'steel');
       if (i < seg) l.beam([x, -0.9, z * 0.85], [x + len / seg, -0.9, z * 0.85], 0.16, 'dark');
       if (i < seg) l.beam([x, -0.9, z * 0.85], [x + len / seg / 2, -2.2, 0], 0.12, 'steel');
       if (i > 0) l.beam([x, -0.9, z * 0.85], [x - len / seg / 2, -2.2, 0], 0.12, 'steel');
@@ -362,6 +366,46 @@ export function bridge(b: StructureBuilder, x1: number, z1: number, x2: number, 
     l.box(x, 0.05, width / 2 - 0.2, 0.3, 0.08, 0.15, 'lamp', { collide: false });
     l.box(x, 0.05, -width / 2 + 0.2, 0.3, 0.08, 0.15, 'lamp', { collide: false });
   }
+  if (o.cover === false) return;
+  // --- cover: a crossing is never a 40 m shooting gallery ---
+  const near = (x: number) => {
+    const p = l.p(x, 0, 0);
+    return (o.keep ?? []).some(([kx, kz]) => Math.hypot(p.x - kx, p.z - kz) < 5.5);
+  };
+  // mid-span bay: the deck widens, a stand-height cable-junction block splits the axial sightline
+  const bay = len >= 36;
+  if (bay && !near(0)) {
+    const bw = width / 2 + 1.8;
+    for (const s of [-1, 1]) {
+      l.box(0, -0.25, s * (width / 2 + 0.9), 7, 0.5, 1.8, 'grid');
+      l.box(0, -0.75, s * (width / 2 + 0.9), 7, 0.5, 1.4, 'darkPanel', { collide: false });
+      // bay parapet shields (crouch cover) with a hazard band
+      l.box(0, 0.6, s * (bw - 0.15), 6.6, 1.2, 0.26, 'hullGray');
+      l.box(0, 1.14, s * (bw - 0.14), 6.62, 0.12, 0.3, 'yellow', { collide: false });
+      l.panel(0, 0.6, s * (bw - 0.29), 5.8, 0.25, 0, 0, -s, 'hazard');
+      l.beam([-3.4, 0, s * bw], [-3.4, -2.0, s * (width / 2)], 0.14, 'steel');
+      l.beam([3.4, 0, s * bw], [3.4, -2.0, s * (width / 2)], 0.14, 'steel');
+    }
+    l.box(0, 0.95, 0, 1.3, 1.9, 1.3, 'darkPanel');
+    l.box(0, 1.95, 0, 1.45, 0.12, 1.45, 'yellow', { collide: false });
+    l.panel(0.66, 1.2, 0, 0.9, 0.6, 1, 0, 0, 'screenAmber');
+    l.panel(-0.66, 1.2, 0, 0.9, 0.6, -1, 0, 0, 'screenAmber');
+    b.light(l.p(0, 2.6, 0), 0xffc98a, 4, 7);
+  }
+  // alternating armoured side shields every ~10 m (crouch height 1.15 m, lane stays 3 m clear)
+  const step = 9.5;
+  const n = Math.floor((len - 10) / step);
+  for (let i = 0; i <= n; i++) {
+    const x = -((n * step) / 2) + i * step;
+    if (bay && Math.abs(x) < 5.5) continue;
+    if (Math.abs(x) > len / 2 - 4.5 || near(x)) continue;
+    const s = i % 2 ? 1 : -1;
+    const z = s * (width / 2 - 0.2);
+    l.box(x, 0.575, z, 1.9, 1.15, 0.22, 'hullGray');
+    l.box(x, 1.12, z, 1.94, 0.1, 0.26, 'yellow', { collide: false });
+    l.box(x - 0.8, 0.3, z - s * 0.28, 0.12, 0.6, 0.45, 'dark', { collide: false, tilt: qAxis(V(1, 0, 0), s * 0.5) });
+    l.box(x + 0.8, 0.3, z - s * 0.28, 0.12, 0.6, 0.45, 'dark', { collide: false, tilt: qAxis(V(1, 0, 0), s * 0.5) });
+  }
 }
 
 /** Support pylon from terrain up to a height (for bridges / conveyors). */
@@ -373,60 +417,116 @@ export function pylon(b: StructureBuilder, x: number, z: number, topY: number, w
   b.box(V(x, gy + 1.2, z), w + 0.6, 1.4, w + 0.6, 0, 'dark');
 }
 
-/** Giant drill rig at the heart of the mine (animated drill string). */
-export function drillRig(b: StructureBuilder, f: Frame): void {
+/**
+ * Giant drill rig at the heart of the mine — the central objective. Point-symmetric (fair for both
+ * teams under the maps' 180° symmetry): a low metal deck you step onto (0.3 m), four derrick legs,
+ * the drill string raised clear of heads (the capture centre stays standable), two operator cabins
+ * (stand cover) and two pipe racks (crouch cover) on opposite sides, glowing ore well in the middle.
+ */
+export function drillRig(b: StructureBuilder, f: Frame, o: { deckR?: number; ramps?: number[] } = {}): void {
   const l = new L(b, f);
-  // base platform
-  l.cylY(0, 0.6, 0, 7, 1.4, 'darkPanel', { seg: 12 });
-  l.cylY(0, 1.35, 0, 7.3, 0.2, 'hazard', { seg: 12, collide: false });
-  // derrick: 4 legs
-  const H = 22;
+  const R = o.deckR ?? 6;
+  // deck: octagonal metal plate (walkable, mag-consistent), hazard rim, skirt down to the floor
+  l.cylY(0, 0.1, 0, R, 0.4, 'grid', { seg: 8 });
+  l.cylY(0, 0.31, 0, R + 0.02, 0.03, 'hazard', { seg: 8, collide: false, rTop: R - 0.35 });
+  l.cylY(0, -0.2, 0, R + 0.4, 0.4, 'darkPanel', { seg: 8, collide: false });
+  // derrick: 4 legs from the deck corners to the crown
+  const H = 20;
+  const leg = Math.min(3.3, R - 1.6);
   for (const [sx, sz] of [
     [-1, -1],
     [1, -1],
     [1, 1],
     [-1, 1],
   ]) {
-    l.beam([sx * 4.2, 1.2, sz * 4.2], [sx * 1.4, H, sz * 1.4], 0.5, 'yellow', { collide: true });
+    l.beam([sx * leg, 0.3, sz * leg], [sx * 1.2, H, sz * 1.2], 0.5, 'yellow', { collide: true });
+    l.box(sx * leg, 0.55, sz * leg, 0.9, 0.5, 0.9, 'dark', { collide: false });
   }
-  for (let y = 4; y < H; y += 3.5) {
-    const w = 4.2 + (1.4 - 4.2) * ((y - 1.2) / (H - 1.2));
+  // cross bracing starts above head height (the drill floor under the derrick stays open)
+  for (let y = 4.2; y < H; y += 3.5) {
+    const w = leg + (1.2 - leg) * ((y - 0.3) / (H - 0.3));
     l.beam([-w, y, -w], [w, y, -w], 0.18, 'dark');
     l.beam([w, y, -w], [w, y, w], 0.18, 'dark');
     l.beam([w, y, w], [-w, y, w], 0.18, 'dark');
     l.beam([-w, y, w], [-w, y, -w], 0.18, 'dark');
   }
-  // crown block
-  l.box(0, H + 0.8, 0, 4, 1.6, 4, 'yellow');
-  l.box(0, H + 2.0, 0, 2.2, 0.8, 2.2, 'dark');
+  // crown block + travelling block
+  l.box(0, H + 0.8, 0, 3.6, 1.6, 3.6, 'yellow');
+  l.box(0, H + 2.0, 0, 2.0, 0.8, 2.0, 'dark');
   beacon(b, l.p(0, H + 2.8, 0), 0xff3a2a, 1.0, 0);
-  // operator cabin on the platform
-  l.box(4.8, 3.0, 0, 3.0, 3.0, 3.6, 'hull');
-  l.panel(6.31, 3.3, 0, 2.6, 1.2, 1, 0, 0, 'glassBlue');
-  l.box(4.8, 4.6, 0, 3.3, 0.3, 3.9, 'yellow', { collide: false });
-  l.panel(4.8, 2.1, 1.82, 2.6, 0.9, 0, 0, 1, 'labelMine');
-  // rotating drill string & head
+  // floodlights on the derrick shine down onto the deck (objective always readable)
+  for (const [sx, sz] of [
+    [1, 0],
+    [-1, 0],
+  ]) {
+    l.box(sx * 1.9, 7.6, sz, 0.5, 0.35, 0.7, 'dark', { collide: false });
+    l.box(sx * 1.9, 7.4, sz, 0.42, 0.04, 0.6, 'lamp', { collide: false });
+    b.light(l.p(sx * 1.9, 7.2, sz), 0xfff0d8, 9, 14, { dir: V(0, -1, 0), cone: 0.2 });
+  }
+  // two operator cabins (point-symmetric) = stand cover on the point
+  for (const s of [-1, 1]) {
+    const cx = s * (R - 1.45);
+    l.box(cx, 1.8, 0, 2.3, 3.0, 3.0, 'hull');
+    l.box(cx, 3.42, 0, 2.6, 0.25, 3.3, 'yellow', { collide: false });
+    l.panel(cx + s * 1.16, 2.35, 0, 1.2, 0.9, s, 0, 0, 'glassBlue');
+    l.panel(cx - s * 1.16, 2.1, 0, 1.4, 0.7, -s, 0, 0, 'labelMine');
+    l.box(cx, 0.45, 1.8, 2.3, 0.3, 0.6, 'dark', { collide: false });
+  }
+  // two pipe racks (crouch cover, ~1.3 m) on the other axis
+  for (const s of [-1, 1]) {
+    const z = s * (R - 1.4);
+    l.box(0, 0.4, z, 2.8, 0.2, 1.4, 'dark');
+    for (let row = 0; row < 3; row++)
+      for (let i = 0; i < 3 - row; i++) l.cylX(0, 0.66 + row * 0.26, z - 0.3 + i * 0.3 + row * 0.15, 0.14, 3.0, i % 2 ? 'steel' : 'hullGray', { seg: 10, collide: false });
+    for (const e of [-1.45, 1.45]) l.box(e, 0.8, z, 0.12, 1.0, 1.3, 'yellow', { collide: false });
+    b.world.addBox(l.p(0, 0.9, z), V(1.5, 0.42, 0.62), l.q(), true);
+  }
+  // ore well under the drill: glowing palladium core seen through a grate ring
+  l.cylY(0, 0.33, 0, 1.25, 0.06, 'ore', { seg: 16, collide: false });
+  b.torus(l.p(0, 0.36, 0), 1.3, 0.1, qAxis(V(1, 0, 0), Math.PI / 2), 'trim');
+  for (const a of [0, Math.PI / 2]) l.box(0, 0.37, 0, 2.5, 0.05, 0.12, 'trim', { collide: false, rot: a });
+  b.light(l.p(0, 1.2, 0), 0x7ff0ff, 6, 7);
+  // rotating drill string, raised: the head hangs 2.7 m over the well
   const drill = new THREE.Group();
-  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, H - 2, 12), toonMat(0x7d8594, { spec: 0.8 }));
-  pipe.position.y = (H - 2) / 2 + 1;
+  const top = H - 1;
+  const bot = 3.3;
+  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, top - bot, 12), toonMat(0x7d8594, { spec: 0.8 }));
+  pipe.position.y = (top + bot) / 2;
   pipe.castShadow = true;
   drill.add(pipe);
   const collars: THREE.BufferGeometry[] = [];
-  for (let y = 3; y < H - 2; y += 2.5) collars.push(new THREE.CylinderGeometry(0.75, 0.75, 0.35, 12).translate(0, y, 0));
+  for (let y = bot + 1; y < top; y += 2.5) collars.push(new THREE.CylinderGeometry(0.7, 0.7, 0.35, 12).translate(0, y, 0));
   const cm = new THREE.Mesh(mergeGeometries(collars, false)!, toonMat(0xffc21a));
   cm.castShadow = true;
   drill.add(cm);
-  const head = new THREE.Mesh(new THREE.ConeGeometry(1.4, 2.2, 8), toonMat(0x3b4150, { spec: 1 }));
+  const head = new THREE.Mesh(new THREE.ConeGeometry(1.1, 1.4, 8), toonMat(0x3b4150, { spec: 1 }));
   head.rotation.x = Math.PI;
-  head.position.y = 0.4;
+  head.position.y = bot - 0.6;
+  head.castShadow = true;
   drill.add(head);
-  drill.position.copy(l.p(0, 0.6, 0));
+  drill.position.copy(l.p(0, 0.3, 0));
   spinner(b, drill, Y, 1.4);
-  b.world.addCylinder(l.p(0, H / 2, 0), 0.8, H / 2, new THREE.Quaternion(), true);
-  // glowing palladium ore heap around the platform
-  oreCluster(b, l.p(-7.5, 0, 3), 1.6, 11);
-  oreCluster(b, l.p(-6.5, 0, -5), 1.3, 12);
-  oreCluster(b, l.p(7.8, 0, -4), 1.2, 13);
+  const hb = 2.6;
+  b.world.addCylinder(l.p(0, 0.3 + (hb + top) / 2, 0), 0.75, (top - hb) / 2, new THREE.Quaternion(), true);
+  // palladium ore heaps just off the deck on the cabin / rack axes (point-symmetric pairs),
+  // swung aside where a haul ramp comes down (world azimuths in `ramps`)
+  const cands: [number, number, number, number][] = [
+    [R + 1.4, 0, 1.2, 11],
+    [-R - 1.4, 0, 1.2, 12],
+    [0, R + 1.4, 1.0, 13],
+    [0, -R - 1.4, 1.0, 14],
+  ];
+  for (const [lx, lz, size, seed] of cands) {
+    const w = l.p(lx, 0, lz);
+    let a = Math.atan2(w.z - f.z, w.x - f.x);
+    const r = Math.hypot(w.x - f.x, w.z - f.z);
+    for (let k = 0; k < 4; k++) {
+      const clash = (o.ramps ?? []).find((ra) => Math.abs(Math.atan2(Math.sin(a - ra), Math.cos(a - ra))) < 0.5);
+      if (clash === undefined) break;
+      a += Math.atan2(Math.sin(a - clash), Math.cos(a - clash)) >= 0 ? 0.35 : -0.35;
+    }
+    oreCluster(b, V(f.x + Math.cos(a) * r, 0, f.z + Math.sin(a) * r), size, seed);
+  }
 }
 
 /** Palladium crystal cluster. */

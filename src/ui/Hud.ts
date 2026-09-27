@@ -15,12 +15,26 @@ import {
   type WeaponId,
 } from '../game/Types';
 import { ClassSlot, TextSlot, clamp, fmtTime, show } from './dom';
-import { abilityName, getLang, heroName, keyLabel, onLangChange, ribbonName, setLang, t, weaponName, weaponShort } from './i18n';
-import { ABILITY_ICON, HERO_ICON, ribbonSvg, sourceIcon, UI, WEAPON_ICON } from './icons';
+import { abilityName, getLang, heroName, keyLabel, onLangChange, passiveDesc, passiveName, ribbonName, setLang, t, weaponName, weaponShort } from './i18n';
+import { ABILITY_ICON, HERO_ICON, ribbonSvg, ROLE_ICON, sourceIcon, UI, WEAPON_ICON } from './icons';
 import { Crosshair } from './hud/Crosshair';
 import { VisorFx } from './hud/Fx';
 import { Compass, Minimap } from './hud/Minimap';
 import { renderScoreboard, type ScoreInfo } from './hud/Scoreboard';
+import type { PassiveId } from '../game/Types';
+
+/** signature passive icons (reuse the UI icon set) */
+const PASSIVE_ICON: Record<PassiveId, string> = {
+  afterburner: UI.jet,
+  blastproof: UI.shieldPlus,
+  spotter: UI.headshot,
+  backstab: UI.eyeOff,
+  moonstep: UI.moon,
+  fusion: ROLE_ICON.tank,
+  lifelink: UI.heart,
+  fieldrepair: UI.gear,
+  dronelink: UI.target,
+};
 
 // ---------------------------------------------------------------------------
 // tiny DOM helpers (build-time only)
@@ -250,6 +264,13 @@ export class Hud {
   private readonly reloadBar: ScaleSlot;
   private readonly reloading: ClassSlot;
   private readonly chargeBar: ScaleSlot;
+  /** charge bar label (charge / heat / weapon-skill cooldown) + passive chip */
+  private chargeLbl!: HTMLElement;
+  private chargeKindQ = '';
+  private passiveEl!: HTMLDivElement;
+  private passiveIco!: HTMLElement;
+  private passiveOn!: ClassSlot;
+  private passiveQ = '';
   private readonly chargeWrap: HTMLDivElement;
   private readonly slot1: HTMLDivElement;
   private readonly slot1Ico: HTMLSpanElement;
@@ -575,6 +596,11 @@ export class Hud {
     this.br = el('div', 'mg-hud-br', R);
     this.summonBox = el('div', 'mg-summons', this.br);
     const abRow = el('div', 'mg-abils', this.br);
+    // signature passive chip (lit while the passive is doing its thing)
+    this.passiveEl = el('div', 'mg-grap mg-passive', abRow);
+    this.passiveIco = icoEl('', 'mg-grap-ico', el('div', 'mg-grap-box', this.passiveEl));
+    this.passiveEl.style.display = 'none';
+    this.passiveOn = new ClassSlot(this.passiveEl, 'is-ready');
     this.grapple = el('div', 'mg-grap', abRow);
     const gbox = el('div', 'mg-grap-box', this.grapple);
     icoEl(ABILITY_ICON.grapple, 'mg-grap-ico', gbox);
@@ -610,7 +636,7 @@ export class Hud {
     this.reloading = new ClassSlot(wpn, 'is-reloading');
     this.chargeWrap = el('div', 'mg-charge', wpn);
     const cl = el('span', 'mg-charge-l', this.chargeWrap);
-    this.i18nEls.push([cl, 'hud.charge']);
+    this.chargeLbl = cl;
     const cb = el('div', 'mg-charge-bar', this.chargeWrap);
     this.chargeBar = new ScaleSlot(el('i', '', cb));
     const slots = el('div', 'mg-slots', this.br);
@@ -883,9 +909,30 @@ export class Hud {
     const rl = s.reload >= 0;
     this.reloading.set(rl);
     this.reloadBar.set(rl ? s.reload : 0);
-    const railish = s.weaponId === 'rail' || s.charge > 0;
+    const ck = s.chargeKind ?? 'charge';
+    const railish = s.weaponId === 'rail' || s.charge > 0 || ck === 'heat' || ck === 'alt';
     show(this.chargeWrap, railish);
     if (railish) this.chargeBar.set(s.charge);
+    const ckq = ck + getLang();
+    if (ckq !== this.chargeKindQ) {
+      this.chargeKindQ = ckq;
+      this.chargeLbl.textContent = t(ck === 'heat' ? 'hud.heat' : ck === 'alt' ? 'hud.alt' : 'hud.charge');
+      this.chargeWrap.dataset.kind = ck;
+    }
+    if (ck === 'heat') this.reserve.set('∞');
+    // passive chip
+    const pv = s.passive;
+    if (pv) {
+      const pq = pv.id + getLang();
+      if (pq !== this.passiveQ) {
+        this.passiveQ = pq;
+        this.passiveIco.innerHTML = PASSIVE_ICON[pv.id] ?? UI.star;
+        this.passiveEl.title = passiveName(pv.id) + ' — ' + passiveDesc(pv.id);
+        this.passiveEl.style.display = '';
+      }
+      this.passiveOn.set(pv.active);
+      this.passiveEl.style.opacity = pv.active ? '1' : '0.45';
+    }
     // slots
     const sl1 = s.slots[0];
     if (sl1 && sl1.id) {

@@ -765,3 +765,49 @@ export function brushedSet(seed = 18): PbrSet {
   }
   return finish(f, 1.5, key);
 }
+
+/**
+ * Clean painted hard-shell armour (hero plates): faint mottling, soft roughness breakup and fine
+ * scratches — the plate geometry carries the panel detail, the texture only keeps it from reading
+ * as plastic. Albedo is near-white so vertex colours / material colour tint it.
+ */
+export function paintSet(seed = 41): PbrSet {
+  const key = 'paint|' + seed + SIZE;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const W = SIZE;
+  const f = new Field(W, W);
+  const nz = new Noise(seed);
+  const rng = new Rng(seed * 31 + 7);
+  for (let y = 0; y < W; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      const n = tileFbm(nz, x, y, W, W, 2.5, 4);
+      const fine = tileNoise(nz, x, y, W, W, 40);
+      f.height[i] = 0.5 + fine * 0.0015 + n * 0.004;
+      const a = 0.95 + n * 0.035 + fine * 0.008;
+      f.r[i] = a;
+      f.g[i] = a;
+      f.b[i] = a;
+      f.rough[i] = 0.4 + n * 0.1 + fine * 0.03;
+      f.metal[i] = 0.05;
+      f.ao[i] = 1;
+    }
+  }
+  // fine scuffs: lighter, glossier hairlines
+  for (let k = 0; k < 140; k++) {
+    let x = rng.next() * W;
+    let y = rng.next() * W;
+    const a = rng.next() * Math.PI;
+    const len = 6 + rng.next() * 40;
+    for (let s = 0; s < len; s++) {
+      const i = f.idx(Math.floor(x), Math.floor(y));
+      f.height[i] -= 0.004;
+      f.rough[i] = 0.3;
+      f.r[i] = f.g[i] = f.b[i] = Math.min(1, f.r[i] + 0.05);
+      x += Math.cos(a);
+      y += Math.sin(a);
+    }
+  }
+  return finish(f, 1.6, key);
+}

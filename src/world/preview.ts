@@ -37,14 +37,24 @@ const t0 = performance.now();
 const world = new World(mapId, { quality, shadows: (params.get('shadows') as ShadowMode) || 'high', renderer: pipe.renderer, camera });
 const buildMs = performance.now() - t0;
 pipe.setScene(world.scene, camera);
+// bloom tuning overrides: &bt=threshold &bs=strength &br=radius
+if (params.has('bt')) pipe.bloom.threshold = Number(params.get('bt'));
+if (params.has('bs')) pipe.bloom.strength = Number(params.get('bs'));
+if (params.has('br')) pipe.bloom.radius = Number(params.get('br'));
+if (params.has('exp')) pipe.renderer.toneMappingExposure = Number(params.get('exp'));
 
 // ---- stats ----
 let tris = 0;
 let meshes = 0;
 const perMat: Record<string, number> = {};
+let proxyTris = 0;
 world.structures.traverse((o) => {
   const m = o as THREE.Mesh;
   if (!m.isMesh) return;
+  if (m.name === 'shadow-proxy') {
+    proxyTris += (m.geometry.index ? m.geometry.index.count : 0) / 3;
+    return;
+  }
   meshes++;
   const g = m.geometry;
   const n = (g.index ? g.index.count : g.getAttribute('position').count) / 3;
@@ -59,6 +69,8 @@ const stats = {
   colliders: world.physics.colliders.length,
   staticMeshes: meshes,
   staticTris: Math.round(tris),
+  proxyTris: Math.round(proxyTris),
+  dressSkipped: world.structures.userData.dressSkipped as string[],
   spawns: world.layout.spawns.length,
   pickups: world.layout.pickups.length,
   perches: world.layout.perches.length,

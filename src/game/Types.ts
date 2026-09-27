@@ -259,9 +259,28 @@ export interface BuildDef {
   mods: BuildMods;
 }
 
+/** signature passive (one per hero, always on) */
+export type PassiveId =
+  | 'afterburner' // Condor: faster jetpack refuel, refuels in the air
+  | 'blastproof' // Lunatic: immune to own blasts, stronger blast jumps
+  | 'spotter' // Needle: headshots reveal the target to the team
+  | 'backstab' // Phantom: +25% damage from behind
+  | 'moonstep' // Blade: mid-air double jump
+  | 'fusion' // Reactor: damage reduction while the suit is intact
+  | 'lifelink' // Helios: allies nearby leak O2 slower and regenerate
+  | 'fieldrepair' // Forge: repairs nearby allies' suits
+  | 'dronelink'; // Hive: hits mark enemies, drones deal more damage to marked targets
+/** light role passive (shared by every hero of a role) */
+export type RolePassiveId = 'heavy' | 'medic' | 'lightstep' | 'bloodrush' | 'steady' | 'salvage';
+export const ROLE_PASSIVE: Record<Role, RolePassiveId> = { tank: 'heavy', support: 'medic', scout: 'lightstep', melee: 'bloodrush', ranged: 'steady', engineer: 'salvage' };
+
 export interface HeroDef {
   id: HeroId;
   role: Role;
+  /** signature passive */
+  passive: PassiveId;
+  /** knockback mass (1 = standard suit) */
+  mass: number;
   health: number;
   suit: number; // suit integrity pool (armor); < 50% → depressurization
   speed: number; // walk speed m/s (no sprint — OW style)
@@ -282,7 +301,7 @@ const B = (id: string, ru: string, en: string, dru: string, den: string, unlock:
 
 export const HEROES: Record<HeroId, HeroDef> = {
   condor: {
-    id: 'condor', role: 'ranged', health: 200, suit: 100, speed: 5.4, weapon: 'pulse', ability1: ab('dash', 6), ability2: ab('frag', 9), ultimate: ab('swarm', 0, 2.2), ultCost: 1800, sealants: 2, color: '#ff5a4d', visor: '#ffb347', difficulty: 1,
+    id: 'condor', role: 'ranged', passive: 'afterburner', mass: 1.0, health: 200, suit: 100, speed: 5.4, weapon: 'pulse', ability1: ab('dash', 6), ability2: ab('frag', 9), ultimate: ab('swarm', 0, 2.2), ultCost: 1800, sealants: 2, color: '#ff5a4d', visor: '#ffb347', difficulty: 1,
     builds: [
       B('assault', 'Штурмовик', 'Assault', 'Стандартная выучка: сбалансированный урон и мобильность.', 'Standard training: balanced damage and mobility.', 1, {}),
       B('grenadier', 'Гренадёр', 'Grenadier', 'Осколочная граната распадается на кассетные заряды, перезарядка E −20%.', 'Frag splits into cluster bomblets, E cooldown −20%.', 3, { cd2: 0.8, flags: ['cluster'] }),
@@ -290,7 +309,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     ],
   },
   lunatic: {
-    id: 'lunatic', role: 'ranged', health: 200, suit: 100, speed: 5.3, weapon: 'glauncher', ability1: ab('rocketjump', 7), ability2: ab('mine', 10), ultimate: ab('tacnuke', 0, 0), ultCost: 2300, sealants: 2, color: '#ff8a1f', visor: '#ffe066', difficulty: 2,
+    id: 'lunatic', role: 'ranged', passive: 'blastproof', mass: 1.05, health: 200, suit: 100, speed: 5.3, weapon: 'glauncher', ability1: ab('rocketjump', 7), ability2: ab('mine', 10), ultimate: ab('tacnuke', 0, 0), ultCost: 2300, sealants: 2, color: '#ff8a1f', visor: '#ffe066', difficulty: 2,
     builds: [
       B('demolition', 'Подрывник', 'Demolition', 'Больше гранат в барабане, быстрее перезарядка.', 'Bigger drum, faster reload.', 1, { mag: 1.34 }),
       B('minelayer', 'Минёр', 'Minelayer', 'Две мины одновременно, мины оглушают ЭМИ.', 'Two mines at once, mines also EMP.', 3, { charges2: 1, flags: ['empMine'] }),
@@ -298,7 +317,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     ],
   },
   needle: {
-    id: 'needle', role: 'scout', health: 175, suit: 75, speed: 5.3, weapon: 'rail', ability1: ab('decoy', 12, 8), ability2: ab('sensor', 14, 12), ultimate: ab('overcharge', 0, 7), ultCost: 1700, sealants: 2, color: '#4db8ff', visor: '#7ff0ff', difficulty: 3,
+    id: 'needle', role: 'scout', passive: 'spotter', mass: 0.95, health: 175, suit: 75, speed: 5.3, weapon: 'rail', ability1: ab('decoy', 12, 8), ability2: ab('sensor', 14, 12), ultimate: ab('overcharge', 0, 7), ultCost: 1700, sealants: 2, color: '#4db8ff', visor: '#7ff0ff', difficulty: 3,
     builds: [
       B('marksman', 'Стрелок', 'Marksman', 'Быстрее заряд рельсотрона при прицеливании.', 'Faster railgun charge while scoped.', 1, { fireRate: 1.15 }),
       B('recon', 'Разведчик', 'Recon', 'Сенсор дольше и шире, подсвечивает врагов всей команде.', 'Sensor lasts longer and wider, reveals for the team.', 3, { cd2: 0.75, flags: ['wideSensor'] }),
@@ -306,7 +325,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     ],
   },
   phantom: {
-    id: 'phantom', role: 'scout', health: 175, suit: 75, speed: 5.8, weapon: 'twinarc', ability1: ab('blink', 5, 0, 2), ability2: ab('cloak', 12, 5), ultimate: ab('empnova', 0, 0), ultCost: 1900, sealants: 2, color: '#b06cff', visor: '#d9a8ff', difficulty: 3,
+    id: 'phantom', role: 'scout', passive: 'backstab', mass: 0.9, health: 175, suit: 75, speed: 5.8, weapon: 'twinarc', ability1: ab('blink', 5, 0, 2), ability2: ab('cloak', 12, 5), ultimate: ab('empnova', 0, 0), ultCost: 1900, sealants: 2, color: '#b06cff', visor: '#d9a8ff', difficulty: 3,
     builds: [
       B('infiltrator', 'Лазутчик', 'Infiltrator', 'Невидимость дольше, первый выстрел из инвиза +50% урона.', 'Longer cloak, first shot from cloak +50% damage.', 1, { flags: ['ambush'] }),
       B('stormer', 'Шторм', 'Storm', '3 заряда блинка, −10% урона.', '3 blink charges, −10% damage.', 3, { charges1: 1, damage: 0.9 }),
@@ -314,7 +333,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     ],
   },
   blade: {
-    id: 'blade', role: 'melee', health: 225, suit: 100, speed: 5.9, weapon: 'blade', ability1: ab('lunge', 6), ability2: ab('deflect', 9, 1.8), ultimate: ab('moonblade', 0, 6), ultCost: 1900, sealants: 2, color: '#39e3a8', visor: '#b8ffe6', difficulty: 2,
+    id: 'blade', role: 'melee', passive: 'moonstep', mass: 1.0, health: 225, suit: 100, speed: 5.9, weapon: 'blade', ability1: ab('lunge', 6), ability2: ab('deflect', 9, 1.8), ultimate: ab('moonblade', 0, 6), ultCost: 1900, sealants: 2, color: '#39e3a8', visor: '#b8ffe6', difficulty: 2,
     builds: [
       B('duelist', 'Дуэлянт', 'Duelist', 'Удары быстрее, выпад сбрасывается при убийстве.', 'Faster swings, lunge resets on kill.', 1, { fireRate: 1.1, flags: ['lungeReset'] }),
       B('guardian', 'Страж', 'Guardian', 'Отражение дольше и лечит вас.', 'Longer deflect that heals you.', 3, { cd2: 0.85, flags: ['deflectHeal'] }),
@@ -322,7 +341,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     ],
   },
   reactor: {
-    id: 'reactor', role: 'tank', health: 300, suit: 200, speed: 5.0, weapon: 'plasma', ability1: ab('dome', 12, 8), ability2: ab('slam', 8), ultimate: ab('blackhole', 0, 4), ultCost: 2100, sealants: 2, color: '#ffc21a', visor: '#ffd36b', difficulty: 2,
+    id: 'reactor', role: 'tank', passive: 'fusion', mass: 1.6, health: 300, suit: 200, speed: 5.0, weapon: 'plasma', ability1: ab('dome', 12, 8), ability2: ab('slam', 8), ultimate: ab('blackhole', 0, 4), ultCost: 2100, sealants: 2, color: '#ffc21a', visor: '#ffd36b', difficulty: 2,
     builds: [
       B('bulwark', 'Бастион', 'Bulwark', 'Купол прочнее и больше.', 'Tougher, larger dome.', 1, { flags: ['bigDome'] }),
       B('juggernaut', 'Джаггернаут', 'Juggernaut', '+15% здоровья, удар отбрасывает сильнее.', '+15% health, stronger slam knockback.', 3, { health: 1.15, flags: ['heavySlam'] }),
@@ -330,7 +349,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     ],
   },
   helios: {
-    id: 'helios', role: 'support', health: 200, suit: 75, speed: 5.4, weapon: 'sealer', ability1: ab('o2burst', 10), ability2: ab('medstation', 16, 10), ultimate: ab('lifebubble', 0, 5), ultCost: 2000, sealants: 4, color: '#5fe36a', visor: '#9dffb0', difficulty: 1,
+    id: 'helios', role: 'support', passive: 'lifelink', mass: 1.0, health: 200, suit: 75, speed: 5.4, weapon: 'sealer', ability1: ab('o2burst', 10), ability2: ab('medstation', 16, 10), ultimate: ab('lifebubble', 0, 5), ultCost: 2000, sealants: 4, color: '#5fe36a', visor: '#9dffb0', difficulty: 1,
     builds: [
       B('medic', 'Медик', 'Medic', 'Сильнее лечение пеной.', 'Stronger foam healing.', 1, { damage: 1.2 }),
       B('lifeline', 'Спасатель', 'Lifeline', 'Кислородный выброс восстанавливает скафандр полностью.', 'O2 burst fully repairs suits.', 3, { cd1: 0.85, flags: ['fullSeal'] }),
@@ -338,7 +357,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     ],
   },
   forge: {
-    id: 'forge', role: 'engineer', health: 225, suit: 125, speed: 5.1, weapon: 'riveter', ability1: ab('servitor', 14, 25, 2), ability2: ab('turret', 16, 30), ultimate: ab('forcefield', 0, 7), ultCost: 2100, sealants: 3, color: '#ff9f43', visor: '#ffd08a', difficulty: 2,
+    id: 'forge', role: 'engineer', passive: 'fieldrepair', mass: 1.2, health: 225, suit: 125, speed: 5.1, weapon: 'riveter', ability1: ab('servitor', 14, 25, 2), ability2: ab('turret', 16, 30), ultimate: ab('forcefield', 0, 7), ultCost: 2100, sealants: 3, color: '#ff9f43', visor: '#ffd08a', difficulty: 2,
     builds: [
       B('mechanic', 'Механик', 'Mechanic', 'Турель стреляет быстрее, сервиторы прочнее.', 'Faster turret, tougher servitors.', 1, { flags: ['toughServitors'] }),
       B('fortifier', 'Фортификатор', 'Fortifier', 'Вместо сервиторов — заграждения-укрытия (2 заряда).', 'Barricades instead of servitors (2 charges).', 3, { swap1: 'barricade', cd1: 0.6 }),
@@ -346,7 +365,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     ],
   },
   hive: {
-    id: 'hive', role: 'engineer', health: 200, suit: 100, speed: 5.3, weapon: 'burst', ability1: ab('huntdrone', 12, 12), ability2: ab('spotdrone', 14, 10), ultimate: ab('kamikaze', 0, 0), ultCost: 2000, sealants: 2, color: '#e6e14d', visor: '#fff59a', difficulty: 2,
+    id: 'hive', role: 'engineer', passive: 'dronelink', mass: 1.0, health: 200, suit: 100, speed: 5.3, weapon: 'burst', ability1: ab('huntdrone', 12, 12), ability2: ab('spotdrone', 14, 10), ultimate: ab('kamikaze', 0, 0), ultCost: 2000, sealants: 2, color: '#e6e14d', visor: '#fff59a', difficulty: 2,
     builds: [
       B('hunter', 'Охотник', 'Hunter', 'Дрон-охотник живёт дольше и наносит больше урона.', 'Hunter drone lasts longer and hits harder.', 1, { flags: ['strongHunter'] }),
       B('overseer', 'Надзиратель', 'Overseer', 'Дрон-наводчик подсвечивает сквозь стены и замедляет.', 'Spotter drone reveals through walls and slows.', 3, { flags: ['slowSpot'] }),
@@ -573,6 +592,10 @@ export interface HudState {
   stance?: 'stand' | 'crouch' | 'prone' | 'slide' | 'roll';
   summons?: { kind: 'servitor' | 'turret' | 'drone' | 'barricade'; hp: number }[];
   forceField?: number; // 0..1 extra shield on top of health
+  /** what the weapon charge bar means for the active weapon ('charge' rail/slug, 'heat' riveter, 'alt' alt-fire cooldown) */
+  chargeKind?: 'charge' | 'heat' | 'alt';
+  /** signature passive + whether it is currently working (e.g. Reactor plating while the suit holds) */
+  passive?: { id: PassiveId; active: boolean; value: number };
   spread: number; // crosshair gap in px at 1080p
   hitmarker: number; // 0..1 fade
   hitHead: boolean;

@@ -32,6 +32,15 @@ const S: Record<string, { ru: string; en: string }> = {
   joined: { ru: '{name} присоединился', en: '{name} joined' },
   left: { ru: '{name} покинул бой', en: '{name} left' },
   hostLost: { ru: 'Связь с хостом потеряна', en: 'Lost connection to host' },
+  overheat: { ru: 'ПЕРЕГРЕВ — СБРОС ТЕПЛА', en: 'OVERHEATED — VENTING' },
+  salvage: { ru: 'УТИЛИЗАЦИЯ: +40 HP', en: 'SALVAGE: +40 HP' },
+  pk_o2: { ru: 'КИСЛОРОДНЫЙ БАЛЛОН', en: 'O₂ CANISTER' },
+  pk_armor: { ru: 'БРОНЕКОМПЛЕКТ', en: 'ARMOUR PACK' },
+  pk_ammo: { ru: 'ЭНЕРГОЯЧЕЙКА', en: 'POWER CELL' },
+  pk_grenade: { ru: 'НАБОР СНАРЯЖЕНИЯ', en: 'GADGET KIT' },
+  hpShort: { ru: 'ОЗ', en: 'HP' },
+  suitShort: { ru: 'скафандр', en: 'suit' },
+  ultShort: { ru: 'ульта', en: 'ult' },
 };
 
 let lang: Lang = 'ru';

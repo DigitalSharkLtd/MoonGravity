@@ -330,7 +330,9 @@ export class Pipeline {
     this.composer.addPass(this.outline);
     this.overlayPass = new OverlayPass(this.overlayScene, this.overlayCamera);
     this.composer.addPass(this.overlayPass);
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.62, 0.55, 0.88);
+    // threshold above sunlit white (lum ~0.9–1.1 in HDR): only emissives, flashes and ore bloom, so
+    // bright structures stay crisp instead of hazing over (the high pass keeps the full texel value)
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.58, 0.5, 1.15);
     this.bloom.enabled = o.bloom;
     this.composer.addPass(this.bloom);
     this.grade = new GradePass();

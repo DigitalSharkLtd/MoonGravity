@@ -95,7 +95,7 @@ export function gradeY(g: THREE.BufferGeometry, lo: number, hi: number, dark = 0
  */
 export function outline(corners: ([number, number] | [number, number, number])[], opts: { r?: number; seg?: number; maxLen?: number } = {}): V2[] {
   const n = corners.length;
-  const maxLen = opts.maxLen ?? 0.03;
+  const maxLen = opts.maxLen ?? 0.075;
   const arcs: V2[][] = [];
   for (let i = 0; i < n; i++) {
     const p = corners[i];
@@ -139,7 +139,7 @@ export function outline(corners: ([number, number] | [number, number, number])[]
     let da = a1 - a0;
     while (da > Math.PI) da -= Math.PI * 2;
     while (da < -Math.PI) da += Math.PI * 2;
-    const seg = Math.max(1, Math.round(opts.seg ?? Math.max(2, Math.ceil((Math.abs(da) / (Math.PI / 2)) * 4))));
+    const seg = Math.max(1, Math.round(opts.seg ?? Math.max(1, Math.round((Math.abs(da) / (Math.PI / 2)) * 2))));
     const arc: V2[] = [];
     for (let s = 0; s <= seg; s++) {
       const ang = a0 + (da * s) / seg;
@@ -172,7 +172,7 @@ export function ellipse(rx: number, ry: number, n = 20, cx = 0, cy = 0, p = 2): 
   return out;
 }
 
-export function rrect(cx: number, cy: number, w: number, h: number, r: number, maxLen = 0.03): V2[] {
+export function rrect(cx: number, cy: number, w: number, h: number, r: number, maxLen = 0.045): V2[] {
   return outline(
     [
       [cx - w / 2, cy - h / 2, r],
@@ -304,6 +304,8 @@ export interface PlateOpts {
   back?: boolean;
   /** texture scale (uv per metre) */
   uv?: number;
+  /** rounded two-step bevel (default); false = single chamfer (tiny plates) */
+  soft?: boolean;
 }
 
 const _w0 = new THREE.Vector3();
@@ -341,23 +343,19 @@ export function plate(wrap: Wrap, ol: V2[], o: PlateOpts = {}): THREE.BufferGeom
     const HI = offset(H, -bev);
     rows.push({ p: H, h: () => h0 - sink, c: 0.55 });
     rows.push({ p: H, h: (u, v) => top(u, v) - bevH, c: edge * 0.92 });
-    rows.push({ p: lerp2(HI, H, 0.45), h: (u, v) => top(u, v) - bevH * 0.3, c: edge });
+    if (o.soft !== false) rows.push({ p: lerp2(HI, H, 0.45), h: (u, v) => top(u, v) - bevH * 0.3, c: edge });
     const nr = o.rings ?? 1;
     for (let j = 0; j <= nr; j++) rows.push({ p: lerp2(HI, I, j / nr), h: top, c: 1 });
   } else {
     let maxR = 0;
     for (const p of I) maxR = Math.max(maxR, Math.hypot(p[0] - C[0], p[1] - C[1]));
-    const nr = o.rings ?? THREE.MathUtils.clamp(Math.ceil(maxR / 0.03), 1, 7);
+    const nr = o.rings ?? THREE.MathUtils.clamp(Math.ceil(maxR / 0.07), 1, 3);
     const Cs: V2[] = I.map(() => [C[0], C[1]] as V2);
     for (let j = 1; j <= nr; j++) rows.push({ p: lerp2(Cs, I, j / nr), h: top, c: 1 });
   }
-  rows.push({ p: lerp2(I, O, 0.55), h: (u, v) => top(u, v) - bevH * 0.3, c: edge });
+  if (o.soft !== false) rows.push({ p: lerp2(I, O, 0.55), h: (u, v) => top(u, v) - bevH * 0.3, c: edge });
   rows.push({ p: O, h: (u, v) => top(u, v) - bevH, c: edge * 0.92 });
   rows.push({ p: O, h: () => h0 - sink, c: 0.55 });
-  if (!H && o.back !== false) {
-    const Cs: V2[] = O.map(() => [C[0], C[1]] as V2);
-    rows.push({ p: lerp2(Cs, O, 0.5), h: () => h0 - sink * 1.5, c: 0.45 });
-  }
 
   const pos: number[] = [];
   const uv: number[] = [];
@@ -372,7 +370,8 @@ export function plate(wrap: Wrap, ol: V2[], o: PlateOpts = {}): THREE.BufferGeom
   };
   if (!H) centerTop = vert(C[0], C[1], top(C[0], C[1]), 1);
   const ids: number[][] = rows.map((r) => r.p.map(([u, v]) => vert(u, v, r.h(u, v), r.c)));
-  if (!H && o.back !== false) centerBack = vert(C[0], C[1], h0 - sink * 1.5, 0.45);
+  // plates sink into the suit / other plates: the underside is never seen (opt in with `back`)
+  if (!H && o.back === true) centerBack = vert(C[0], C[1], h0 - sink * 1.5, 0.45);
   const quad = (A: number[], B: number[]) => {
     for (let k = 0; k < N; k++) {
       const k1 = (k + 1) % N;
@@ -387,10 +386,11 @@ export function plate(wrap: Wrap, ol: V2[], o: PlateOpts = {}): THREE.BufferGeom
     for (let k = 0; k < N; k++) idx.push(L[k], centerBack, L[(k + 1) % N]);
   }
   // orientation: the first top triangle must face along the wrap normal
-  const probeRow = H ? ids[4] : ids[0];
+  const tr = o.soft !== false ? 3 : 2; // first top row of a frame
+  const probeRow = H ? ids[tr + 1] : ids[0];
   const a = probeRow[0];
   const b = probeRow[1];
-  const refTri = H ? [ids[3][0], ids[4][0], ids[3][1]] : [centerTop, a, b];
+  const refTri = H ? [ids[tr][0], ids[tr + 1][0], ids[tr][1]] : [centerTop, a, b];
   const P = (i: number) => new THREE.Vector3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
   const n = P(refTri[1]).sub(P(refTri[0])).cross(P(refTri[2]).sub(P(refTri[0])));
   const pu = H ? H[0] : C;
@@ -448,7 +448,8 @@ export function planeWrap(m?: THREE.Matrix4): Wrap {
 }
 
 /** piecewise-linear profile lookup: rows [key, ...values] sorted by key */
-export function profile(rows: number[][]): (x: number, i: number) => number {
+export function profile(rows0: number[][]): (x: number, i: number) => number {
+  const rows = rows0.slice().sort((a, b) => a[0] - b[0]);
   return (x, i) => {
     if (x <= rows[0][0]) return rows[0][i];
     for (let k = 0; k < rows.length - 1; k++) {
@@ -466,9 +467,10 @@ export function profile(rows: number[][]): (x: number, i: number) => number {
 
 /**
  * Elliptic-section column (torso): rows [y, halfWidth, halfDepth, zCentre], u = arc length from the
- * front centre (toward +x), v = y. Front is -z.
+ * front centre (toward +x) — or from the back centre (toward -x) with `back` — v = y. Front is -z.
+ * With `angular`, u is the angle in radians (for closed bands).
  */
-export function columnWrap(rows: number[][], sx = 1, sz = 1): Wrap {
+export function columnWrap(rows: number[][], o: { back?: boolean; angular?: boolean } = {}): Wrap {
   const pr = profile(rows);
   const arcCache = new Map<number, Float32Array>();
   const STEPS = 96;
@@ -492,19 +494,25 @@ export function columnWrap(rows: number[][], sx = 1, sz = 1): Wrap {
     arcCache.set(key, tb);
     return tb;
   };
+  const a0 = o.back ? Math.PI : 0;
   const P = (u: number, v: number, out: THREE.Vector3) => {
-    const w = pr(v, 1) * sx;
-    const d = pr(v, 2) * sz;
+    const w = pr(v, 1);
+    const d = pr(v, 2);
     const z0 = pr(v, 3);
-    const tb = arcTable(w, d);
-    const s = Math.min(Math.abs(u), tb[STEPS] * 0.999);
-    let i = 0;
-    while (i < STEPS - 1 && tb[i + 1] < s) i++;
-    const f = (s - tb[i]) / (tb[i + 1] - tb[i] || 1);
-    const a = ((i + f) / STEPS) * Math.PI * Math.sign(u);
+    let a: number;
+    if (o.angular) a = u;
+    else {
+      const tb = arcTable(w, d);
+      const s = Math.min(Math.abs(u), tb[STEPS] * 0.999);
+      let i = 0;
+      while (i < STEPS - 1 && tb[i + 1] < s) i++;
+      const f = (s - tb[i]) / (tb[i + 1] - tb[i] || 1);
+      a = ((i + f) / STEPS) * Math.PI * Math.sign(u);
+    }
+    a += a0;
     return out.set(w * Math.sin(a), v, z0 - d * Math.cos(a));
   };
-  return surfaceWrap(P, (p, o) => o.set(p.x, 0, p.z - pr(p.y, 3)));
+  return surfaceWrap(P, (p, out) => out.set(p.x, 0, p.z - pr(p.y, 3)));
 }
 
 /**
@@ -620,7 +628,7 @@ export function lathe(prof: [number, number][], seg = 20, phiStart = 0, phiLen =
 }
 
 /** cylinder with chamfered rims (along Y, centred) */
-export function bcyl(rTop: number, rBot: number, h: number, bevel = 0.006, seg = 16, open = false): THREE.BufferGeometry {
+export function bcyl(rTop: number, rBot: number, h: number, bevel = 0.006, seg = 14, open = false): THREE.BufferGeometry {
   const b = Math.min(bevel, h * 0.3, rTop * 0.5, rBot * 0.5);
   const pr: [number, number][] = [];
   if (!open) pr.push([0, -h / 2]);
@@ -630,14 +638,14 @@ export function bcyl(rTop: number, rBot: number, h: number, bevel = 0.006, seg =
 }
 
 /** rounded box */
-export function rbox(w: number, h: number, d: number, r = 0.01, seg = 2): THREE.BufferGeometry {
+export function rbox(w: number, h: number, d: number, r = 0.01, seg = 1): THREE.BufferGeometry {
   return new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4));
 }
 
 /** extruded rounded outline (in XY, depth along Z, centred), bevelled, crease-shaded */
-export function extr(ol: V2[], depth: number, bevel = 0.005, bevelSegs = 2): THREE.BufferGeometry {
+export function extr(ol: V2[], depth: number, bevel = 0.005, bevelSegs = 2, curveSegs = 4): THREE.BufferGeometry {
   const shape = new THREE.Shape(ccw(ol).map(([x, y]) => new THREE.Vector2(x, y)));
-  const g = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.001, depth - bevel * 2), bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel * 0.8, bevelSegments: bevelSegs, curveSegments: 4 });
+  const g = new THREE.ExtrudeGeometry(shape, { depth: Math.max(0.001, depth - bevel * 2), bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel * 0.8, bevelSegments: bevelSegs, curveSegments: curveSegs });
   g.translate(0, 0, -(depth - bevel * 2) / 2);
   return toCreasedNormals(g, 0.7);
 }
@@ -659,3 +667,218 @@ export function shade(g: THREE.BufferGeometry, k: number): THREE.BufferGeometry 
   for (let i = 0; i < c.count; i++) c.setXYZ(i, c.getX(i) * k, c.getY(i) * k, c.getZ(i) * k);
   return g;
 }
+
+/**
+ * Band across a chart: `us` columns (closed ring when `closed`), cross-section rows [v, h]
+ * (smooth-shaded; repeat a row with a tiny v step for a tighter edge).
+ */
+export function band(wrap: Wrap, us: number[], prof: [number, number][], closed: boolean, edge = 1.15): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const cl: number[] = [];
+  const idx: number[] = [];
+  const nU = us.length;
+  const hMax = Math.max(...prof.map((r) => r[1]));
+  const hMin = Math.min(...prof.map((r) => r[1]));
+  for (let j = 0; j < prof.length; j++) {
+    const [v, h] = prof[j];
+    const f = (h - hMin) / (hMax - hMin || 1);
+    const c = 0.6 + 0.4 * f;
+    const isEdge = j > 0 && j < prof.length - 1 && (prof[j - 1][1] < h - 1e-4 || prof[j + 1][1] < h - 1e-4);
+    const k = isEdge ? c * edge : c;
+    for (let i = 0; i < nU; i++) {
+      wrap(us[i], v, h, _w0);
+      pos.push(_w0.x, _w0.y, _w0.z);
+      uv.push(us[i] * 2, v * 2);
+      cl.push(k, k, k);
+    }
+  }
+  const cols = closed ? nU : nU - 1;
+  for (let j = 0; j < prof.length - 1; j++) {
+    for (let i = 0; i < cols; i++) {
+      const i1 = (i + 1) % nU;
+      const a = j * nU + i;
+      const b = j * nU + i1;
+      const c = (j + 1) * nU + i;
+      const d = (j + 1) * nU + i1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  // orientation vs the wrap normal at the middle
+  const mid = Math.floor(prof.length / 2);
+  const P = (i: number) => new THREE.Vector3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+  const a = (mid - 1) * nU;
+  const n = P(a + nU).sub(P(a)).cross(P(a + 1).sub(P(a)));
+  wrap(us[0], prof[mid][0], 0, _w0);
+  wrap(us[0], prof[mid][0], 1, _w1);
+  if (n.dot(_w1.sub(_w0)) < 0) {
+    for (let i = 0; i < idx.length; i += 3) {
+      const t = idx[i + 1];
+      idx[i + 1] = idx[i + 2];
+      idx[i + 2] = t;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(cl, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** evenly spaced values */
+export function span(a: number, b: number, n: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push(a + ((b - a) * i) / (n - 1));
+  return out;
+}
+
+const _q = new THREE.Quaternion();
+const _up = new THREE.Vector3(0, 1, 0);
+/**
+ * Place a primitive on a chart: its +Y goes along the surface normal at (u, v), origin at height h.
+ * `spin` rotates about the normal; `tilt` leans the part (radians about its local X) first.
+ */
+export function onSurface(wrap: Wrap, u: number, v: number, h: number, g: THREE.BufferGeometry, spin = 0, tilt = 0): THREE.BufferGeometry {
+  const p = wrap(u, v, h, new THREE.Vector3());
+  const n = wrap(u, v, h + 0.01, new THREE.Vector3()).sub(p).normalize();
+  // tangent along +v for a stable spin reference
+  const pv = wrap(u, v + 0.01, h, new THREE.Vector3()).sub(p);
+  pv.addScaledVector(n, -pv.dot(n)).normalize();
+  const x = new THREE.Vector3().crossVectors(pv, n).normalize();
+  const m = new THREE.Matrix4().makeBasis(x, n, pv.clone().negate());
+  const pre = new THREE.Matrix4().makeRotationY(spin).multiply(new THREE.Matrix4().makeRotationX(tilt));
+  g.applyMatrix4(pre);
+  g.applyMatrix4(m);
+  g.translate(p.x, p.y, p.z);
+  void _q;
+  void _up;
+  return g;
+}
+
+/** periodic smooth radius curve through [angleDeg, rho] keys (CCW from +u) → outline */
+export function polarKeys(keys: [number, number][], n = 48, cx = 0, cy = 0): V2[] {
+  const ks = keys.slice().sort((a, b) => a[0] - b[0]);
+  const m = ks.length;
+  const at = (i: number): [number, number] => {
+    const k = ((i % m) + m) % m;
+    const wrapN = Math.floor(i / m);
+    return [ks[k][0] + wrapN * 360, ks[k][1]];
+  };
+  const out: V2[] = [];
+  for (let s = 0; s < n; s++) {
+    const deg = (s / n) * 360;
+    // find segment
+    let i = -1;
+    for (let j = -1; j <= m; j++) {
+      const a = at(j);
+      const b = at(j + 1);
+      if (deg >= a[0] && deg < b[0]) {
+        i = j;
+        break;
+      }
+    }
+    const p0 = at(i - 1);
+    const p1 = at(i);
+    const p2 = at(i + 1);
+    const p3 = at(i + 2);
+    const t = (deg - p1[0]) / (p2[0] - p1[0] || 1);
+    // Catmull-Rom on rho
+    const t2 = t * t;
+    const t3 = t2 * t;
+    const r = 0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3);
+    const a = (deg * Math.PI) / 180;
+    out.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+  }
+  return out;
+}
+
+/**
+ * Ring chart around a star surface: u = angle about `axis` (× rn) starting at `e1`, v = elevation
+ * off the ring plane (× rn), offset by `v0` metres along the axis-direction. Use with `band()` for
+ * straps, rims and collars that follow a helmet / boot shell.
+ */
+export function ringWrap(S: StarSurface, axis: THREE.Vector3, e1: THREE.Vector3, rn: number, lift = 0): Wrap {
+  const n = axis.clone().normalize();
+  const a = e1.clone().addScaledVector(n, -e1.dot(n)).normalize();
+  const b = new THREE.Vector3().crossVectors(n, a);
+  const dir = new THREE.Vector3();
+  const P = (u: number, v: number, out: THREE.Vector3) => {
+    const phi = u / rn;
+    const th = v / rn + lift;
+    dir.copy(a).multiplyScalar(Math.cos(phi)).addScaledVector(b, Math.sin(phi)).multiplyScalar(Math.cos(th)).addScaledVector(n, Math.sin(th)).normalize();
+    return out.copy(S.c).addScaledVector(dir, S.r(dir));
+  };
+  return surfaceWrap(P, (p, o) => o.copy(p).sub(S.c));
+}
+
+/** straight strip outline between two chart points (width w, rounded ends) */
+export function strip(u0: number, v0: number, u1: number, v1: number, w: number, r = w * 0.45): V2[] {
+  const dx = u1 - u0;
+  const dy = v1 - v0;
+  const l = Math.hypot(dx, dy) || 1;
+  const nx = (-dy / l) * (w / 2);
+  const ny = (dx / l) * (w / 2);
+  return outline(
+    [
+      [u0 + nx, v0 + ny, r],
+      [u0 - nx, v0 - ny, r],
+      [u1 - nx, v1 - ny, r],
+      [u1 + nx, v1 + ny, r],
+    ],
+    { maxLen: 0.06 },
+  );
+}
+
+/** regular hexagon outline (flat top when rot = 0) */
+export function hexagon(cx: number, cy: number, r: number, rot = 0, fillet = 0.004): V2[] {
+  const c: [number, number, number][] = [];
+  for (let i = 0; i < 6; i++) {
+    const a = rot + (i / 6) * Math.PI * 2;
+    c.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r, fillet]);
+  }
+  return outline(c, { maxLen: 1 });
+}
+
+// ---------------------------------------------------------------------------
+// kit context shared by the helmet / body kits
+
+export type BoneName = 'root' | 'hips' | 'spine' | 'chest' | 'neck' | 'head' | 'pack' | 'armL' | 'foreL' | 'handL' | 'armR' | 'foreR' | 'handR' | 'legL' | 'shinL' | 'footL' | 'legR' | 'shinR' | 'footR';
+export type Mat = 'suit' | 'paint' | 'dark' | 'metal' | 'visor' | 'glow';
+export type Col = THREE.ColorRepresentation;
+
+export interface Palette {
+  main: THREE.Color; // team / hero colour (primary plates)
+  acc: THREE.Color; // hero accent
+  sec: THREE.Color; // secondary plates (neutral)
+  trim: THREE.Color; // dark painted trim
+  glow: THREE.Color; // emissive details
+}
+
+export interface KitCtx {
+  pal: Palette;
+  bulk: number;
+  /** rigid part in bone space */
+  add(bone: BoneName, mat: Mat, geo: THREE.BufferGeometry, col?: Col): void;
+  /** rigid part authored in `space` bone space, skinned with blended weights */
+  blend(space: BoneName, w: Partial<Record<BoneName, number>>, mat: Mat, geo: THREE.BufferGeometry, col?: Col): void;
+  /** part in unscaled bind (model) space, skinned like the suit torso (hips → spine → chest) */
+  torso(mat: Mat, geo: THREE.BufferGeometry, col?: Col): void;
+  /** jet nozzle exits in pack space (flames) */
+  nozzles: [number, number, number][];
+}
+
+export const SIDES = [1, -1] as const;
+export const sideBone = (b: 'arm' | 'fore' | 'hand' | 'leg' | 'shin' | 'foot', s: number): BoneName => (b + (s > 0 ? 'R' : 'L')) as BoneName;
+/** author for the right side (+x), mirror for the left */
+export const sided = (g: THREE.BufferGeometry, s: number): THREE.BufferGeometry => (s > 0 ? g : mirrorX(g));
+export const bump = (x: number, y: number): number => {
+  const d = x * x + y * y;
+  return d >= 1 ? 0 : (1 - d) * (1 - d);
+};
+export const ridge = (x: number, w: number): number => Math.max(0, 1 - Math.abs(x) / w);
+export const smooth = (a: number, b: number, x: number): number => {
+  const t = THREE.MathUtils.clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+};

@@ -40,7 +40,9 @@ const F_ALIVE = 1,
   F_SLIDE = 8192,
   F_ROLL = 16384,
   F_DEFLECT = 32768,
-  F_SHIELD = 65536;
+  F_SHIELD = 65536,
+  /** revealed by a sensor / spotter headshot / drone-link mark (host-side timers) */
+  F_REVEAL = 131072;
 
 interface PeerInfo {
   link: PeerLink;
@@ -196,7 +198,16 @@ export class NetGame {
         const t = g.fighterById(m.tg as number);
         if (!t || !t.alive || !f.alive) break;
         const amt = Math.min(500, Number(m.amt) || 0);
-        g.damage({ target: t, attacker: f, amount: amt, source: m.src as DamageSource, part: (m.part as 'head' | 'body' | 'legs') ?? 'body', dir: m.d ? vec(m.d as number[]) : null, point: m.pt ? vec(m.pt as number[]) : null, suitMul: Number(m.sm) || 0.7, silent: !!m.sil });
+        g.damage({ target: t, attacker: f, amount: amt, source: m.src as DamageSource, part: (m.part as 'head' | 'body' | 'legs') ?? 'body', dir: m.d ? vec(m.d as number[]) : null, point: m.pt ? vec(m.pt as number[]) : null, suitMul: Number(m.sm) || 0.7, silent: !!m.sil, slow: Math.min(3, Number(m.sl) || 0) || undefined });
+        break;
+      }
+      case 'kb': {
+        // a client's blast / swing pushed someone: bots and the host move here, other clients get it relayed
+        const t = g.fighterById(m.id as number);
+        const v = vec(m.v as number[]);
+        if (!t || !t.alive || v.length() > 40) break;
+        if (t.control !== 'remote') t.body.impulse(v);
+        else this.sendTo(t, { t: 'kb', v: m.v });
         break;
       }
       case 'heal': {
@@ -441,11 +452,20 @@ export class NetGame {
         const pk = g.match.pickups[m.i as number];
         if (pk) pk.t = pk.respawn;
         const f = g.fighterById(m.f as number);
-        if (f && f === g.local && pk) g.match.applyPickup(f, pk.kind);
+        if (f && f === g.local && pk) {
+          g.match.applyPickup(f, pk.kind);
+          g.pickupFeedback(f, pk.kind);
+        }
         break;
       }
       case 'cap':
         g.onCapture(m.id as 'A' | 'B' | 'C', m.team as number);
+        break;
+      case 'kb':
+        if (g.local && g.local.alive) {
+          const v = vec(m.v as number[]);
+          if (v.length() < 40) g.local.body.impulse(v);
+        }
         break;
       case 'emp':
         if (g.local) {
@@ -477,6 +497,11 @@ export class NetGame {
 
   attach(g: Game): void {
     this.game = g;
+    // knockback on fighters another peer simulates: host → owning client, client → host (bots) / relay
+    g.onRemotePush = (f, v) => {
+      if (this.role === 'host') this.sendTo(f, { t: 'kb', v: v3(v) });
+      else this.client?.link.send({ t: 'kb', id: f.id, v: v3(v) });
+    };
     if (this.role === 'host') {
       g.net = this.bridge;
       g.onKillEvent = (v, k, src, head, wall) => this.broadcast({ t: 'kill', v: v.id, k: k ? k.id : null, src, h: head, w: wall });
@@ -545,7 +570,7 @@ export class NetGame {
   }
 
   private sendClaim(d: DamageSpec): void {
-    this.client?.link.send({ t: 'dmg', tg: d.target.id, amt: r2(d.amount), src: d.source, part: d.part, d: d.dir ? v3(d.dir) : undefined, pt: d.point ? v3(d.point) : undefined, sm: d.suitMul, sil: d.silent ? 1 : 0 }, !d.silent);
+    this.client?.link.send({ t: 'dmg', tg: d.target.id, amt: r2(d.amount), src: d.source, part: d.part, d: d.dir ? v3(d.dir) : undefined, pt: d.point ? v3(d.point) : undefined, sm: d.suitMul, sil: d.silent ? 1 : 0, sl: d.slow ? r2(d.slow) : undefined }, !d.silent);
   }
 
   heroChanged(hero: HeroId, build = ''): void {
@@ -616,6 +641,7 @@ export class NetGame {
     if (flags & F_FIRE) f.firingVisual = 0.15;
     f.body.stance = flags & F_ROLL ? 'roll' : flags & F_SLIDE ? 'slide' : flags & F_PRONE ? 'prone' : f.body.crouching ? 'crouch' : 'stand';
     f.deflectT = flags & F_DEFLECT ? Math.max(f.deflectT, 0.15) : 0;
+    if (flags & F_REVEAL) f.revealedT = Math.max(f.revealedT, 0.3);
     if (!(flags & F_SHIELD)) f.shieldHp = 0;
     else if (f.shieldHp <= 0) f.shieldHp = 100;
     const wid = WIDS[d[12]];
@@ -651,6 +677,8 @@ export class NetGame {
       f.invulnT = flags & F_INVULN ? 0.2 : 0;
       f.shieldHp = d[19] ?? 0;
       if (f === g.local) {
+        // host-applied slows (foam) reach the client's own movement simulation
+        if (d[20] !== undefined) f.slowT = Math.max(f.slowT, d[20]);
         f.ultCharge = Math.max(f.ultCharge, d[16]);
         if (!(flags & F_ALIVE) && f.alive) {
           f.alive = false;
@@ -685,7 +713,7 @@ export class NetGame {
           const flags = flagsOf(f);
           const q = f.control === 'remote' ? f.renderQuat : b.quat;
           const p = f.control === 'remote' ? f.renderPos : b.pos;
-          return [f.id, r2(p.x), r2(p.y), r2(p.z), r3(q.x), r3(q.y), r3(q.z), r3(q.w), r3(b.pitch), r2(b.vel.x), r2(b.vel.y), r2(b.vel.z), flags, Math.round(f.health), Math.round(f.suit), Math.round(f.oxygen), Math.round(f.ultCharge), f.sealants, WIDS.indexOf(f.activeWeapon.id), Math.round(f.shieldHp)];
+          return [f.id, r2(p.x), r2(p.y), r2(p.z), r3(q.x), r3(q.y), r3(q.z), r3(q.w), r3(b.pitch), r2(b.vel.x), r2(b.vel.y), r2(b.vel.z), flags, Math.round(f.health), Math.round(f.suit), Math.round(f.oxygen), Math.round(f.ultCharge), f.sealants, WIDS.indexOf(f.activeWeapon.id), Math.round(f.shieldHp), r2(f.slowT)];
         });
         const mm: number[] = [g.match.teamScores[0], g.match.teamScores[1], Math.round(g.match.timeLeft)];
         for (const cp of g.match.controlPoints) mm.push(cp.owner, r2(cp.progress), cp.contested ? 1 : 0);
@@ -775,6 +803,7 @@ function flagsOf(f: Fighter): number {
     (b.stance === 'slide' ? F_SLIDE : 0) |
     (b.stance === 'roll' ? F_ROLL : 0) |
     (f.deflectT > 0 ? F_DEFLECT : 0) |
-    (f.shieldHp > 0 ? F_SHIELD : 0)
+    (f.shieldHp > 0 ? F_SHIELD : 0) |
+    (f.revealedT > 0 ? F_REVEAL : 0)
   );
 }

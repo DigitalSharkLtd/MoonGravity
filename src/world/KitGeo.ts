@@ -168,7 +168,10 @@ export function chamferBox(w: number, h: number, d: number, bevel: number, seg =
           );
         }
   }
-  return gb.build();
+  const g = gb.build();
+  // shadow proxy hint for the StructureBuilder: a plain 12-triangle box casts the same shadow
+  g.userData.shadow = 'box';
+  return g;
 }
 
 /**
@@ -327,5 +330,9 @@ export function chamferCyl(r: number, h: number, bevel: number, radial = 20, uo:
       }
     }
   }
-  return gb.build();
+  const g = gb.build();
+  g.userData.shadow = 'cyl';
+  g.userData.r = r;
+  g.userData.h = h;
+  return g;
 }

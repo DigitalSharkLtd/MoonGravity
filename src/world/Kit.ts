@@ -760,6 +760,133 @@ export class Kit {
     k.light(0.8, h - 0.5, 0, color, 7, 11, { dir: [0, -1, 0], cone: -0.2 });
   }
 
+  // ---------------------------------------------------------------- set dressing (open ground)
+
+  /** six-wheeled pressurised rover: cabin + cargo bed + mast; ~2.6 m tall stand cover */
+  rover(x: number, z: number, rot: number, y = 0, accent: Mat = 'orange', seed = 1): void {
+    if (this.blocked(x, z, 2.6, 5, y, rot)) return;
+    const k = this.at(x, z, rot, y);
+    const rng = new Rng(seed * 97 + 13);
+    k.box(0, 0.78, 0, 2.2, 0.42, 4.7, 'darkPanel', { collide: false, bevel: 0.1 });
+    k.box(0, 1.72, 0.95, 2.2, 1.5, 2.6, 'hull', { collide: false, bevel: 0.28 });
+    k.box(0, 2.5, 0.95, 1.8, 0.12, 2.1, accent, { collide: false, bevel: 0.04 });
+    k.box(0, 1.35, 2.22, 2.24, 0.16, 0.2, accent, { collide: false, bevel: 0.04 });
+    k.panel(0, 1.95, 2.26, 1.6, 0.62, 0, 0.3, 1, 'glassBlue');
+    for (const sx of [-1, 1]) k.panel(sx * 1.11, 1.95, 1.1, 1.0, 0.45, sx, 0, 0, 'glassBlue');
+    k.box(0, 1.22, -1.45, 2.2, 0.46, 1.7, 'hullGray', { collide: false, bevel: 0.06 });
+    // cargo: crates / an O2 tank on the bed
+    if (rng.chance(0.5)) k.box(0.35, 1.72, -1.5, 1.0, 0.55, 0.9, 'darkPanel', { collide: false, bevel: 0.06 });
+    else k.cylH(0.2, 1.8, -1.5, 0.36, 1.5, 'x', 'hull', { collide: false, seg: 12 });
+    k.box(-0.55, 1.62, -1.2, 0.5, 0.35, 0.5, 'yellow', { collide: false, bevel: 0.05 });
+    for (const sx of [-1.22, 1.22])
+      for (const sz of [-1.65, 0, 1.65]) {
+        k.cylH(sx, 0.52, sz, 0.52, 0.34, 'x', 'rubber', { seg: 14, collide: false });
+        k.cylH(sx * 1.04, 0.52, sz, 0.2, 0.06, 'x', 'steel', { seg: 10, collide: false });
+      }
+    // mast + dish + headlamps
+    k.beam([-0.7, 2.5, 0.4], [-0.7, 3.5, 0.4], 0.06, 'steel', { round: true });
+    k.cyl(-0.7, 3.55, 0.4, 0.28, 0.08, 'paintWhite', { collide: false, seg: 12, tilt: qAxis(1, 0, 0, 0.5) });
+    for (const sx of [-0.7, 0.7]) k.box(sx, 1.35, 2.34, 0.34, 0.12, 0.04, 'lamp', { collide: false, bevel: 0 });
+    k.light(0, 1.2, 3.6, WARM, 3.5, 7, { dir: [0, -0.25, 1], cone: 0.25 });
+    this.b.world.addBox(k.p(0, 1.3, 0.1), V(1.2, 1.15, 2.4), k.q(), true);
+  }
+
+  /** lattice comms mast (tripod) with dish and blinking beacon: skyline landmark, thin collider */
+  antennaMast(x: number, z: number, h = 12, y = 0, seed = 1): void {
+    const k = this.at(x, z, seed * 0.7, y);
+    const r0 = 0.95;
+    const r1 = 0.28;
+    const pt = (i: number, t: number): [number, number, number] => {
+      const a = (i / 3) * Math.PI * 2;
+      const r = r0 + (r1 - r0) * t;
+      return [Math.cos(a) * r, t * h, Math.sin(a) * r];
+    };
+    k.cyl(0, 0.2, 0, r0 + 0.4, 0.4, 'concrete', { metal: false, seg: 12 });
+    for (let i = 0; i < 3; i++) {
+      k.beam(pt(i, 0), pt(i, 1), 0.12, 'paintWhite', { round: true });
+      for (let t = 0; t < 1; t += 0.14) {
+        k.beam(pt(i, t), pt(i + 1, t + 0.07), 0.04, 'steel', { round: true });
+        k.beam(pt(i, t + 0.07), pt(i + 1, t + 0.07), 0.04, 'steel', { round: true });
+      }
+    }
+    for (const t of [0.55, 0.8]) k.box(0, t * h, 0, 0.5, 0.9, 0.18, 'orange', { collide: false, bevel: 0.03, rot: t * 4 });
+    k.cyl(0.3, h * 0.92, 0, 0.7, 0.12, 'paintWhite', { collide: false, seg: 16, tilt: qAxis(0, 0, 1, -1.1) });
+    k.beacon(0, h + 0.4, 0, 0xff3a2a, 1.7, seed * 0.37);
+    this.b.world.addCylinder(k.p(0, h / 2, 0), 0.35, h / 2, k.q(), true);
+  }
+
+  /** horizontal fuel / O2 tank on saddles (~2.4 m cover) */
+  fuelTank(x: number, z: number, rot: number, y = 0, len = 4.6, mat: Mat = 'hull', band: Mat = 'teal'): void {
+    if (this.blocked(x, z, 2.4, len + 0.6, y, rot)) return;
+    const k = this.at(x, z, rot, y);
+    const r = 1.05;
+    k.cylH(0, r + 0.35, 0, r, len, 'z', mat, { seg: 20, collide: false });
+    for (const s of [-1, 1]) {
+      k.b.sphere(k.p(0, r + 0.35, s * (len / 2)), r * 0.98, mat, { seg: 16 });
+      k.box(0, 0.4, s * (len / 2 - 0.8), 1.8, 0.8, 0.4, 'darkPanel', { collide: false, bevel: 0.05 });
+      k.cylH(0, r + 0.35, s * (len / 2 - 0.8), r + 0.03, 0.18, 'z', band, { seg: 20, collide: false });
+    }
+    k.panel(r + 0.01, r + 0.45, 0, 1.6, 0.7, 1, 0, 0, 'hazard');
+    k.pipe([[0, 2 * r + 0.35, len / 2 - 0.6], [0, 2 * r + 0.7, len / 2 - 0.6], [0.8, 2 * r + 0.7, len / 2 - 0.6]], 0.08, 'steel');
+    this.b.world.addBox(k.p(0, r + 0.3, 0), V(r, r + 0.25, len / 2 + r * 0.7), k.q(), true);
+  }
+
+  /** cable reel on its rim (crouch cover ~1.3 m) */
+  cableReel(x: number, z: number, rot: number, y = 0, r = 0.68): void {
+    if (this.blocked(x, z, 1.1, 2 * r, y, rot)) return;
+    const k = this.at(x, z, rot, y);
+    for (const s of [-1, 1]) k.cylH(s * 0.42, r, 0, r, 0.08, 'x', 'wood', { seg: 16, collide: false });
+    k.cylH(0, r, 0, r * 0.72, 0.76, 'x', 'dark', { seg: 16, collide: false });
+    k.cylH(0, r, 0, 0.16, 1.0, 'x', 'steel', { seg: 8, collide: false });
+    this.b.world.addBox(k.p(0, r, 0), V(0.47, r, r * 0.9), k.q(), false);
+  }
+
+  /** scattered wreckage: bent panels, a strut, a crate lid (no collision beyond ankle height) */
+  debris(x: number, z: number, seed: number, y = 0, spread = 2.2): void {
+    const rng = new Rng(seed * 131 + 7);
+    const k = this.at(x, z, rng.range(0, 6), y);
+    const n = 3 + Math.floor(rng.next() * 4);
+    for (let i = 0; i < n; i++) {
+      const px = rng.range(-spread, spread);
+      const pz = rng.range(-spread, spread);
+      const kind = rng.next();
+      const tilt = qAxis(rng.range(-1, 1), 0.2, rng.range(-1, 1), rng.range(0.1, 0.5));
+      if (kind < 0.45) k.box(px, 0.08, pz, rng.range(0.6, 1.4), 0.05, rng.range(0.5, 1.1), rng.pick(['hullGray', 'darkPanel', 'hull', 'yellow'] as Mat[]), { collide: false, bevel: 0.01, rot: rng.range(0, 3), tilt });
+      else if (kind < 0.7) k.beam([px, 0.1, pz], [px + rng.range(-1.6, 1.6), rng.range(0.1, 0.6), pz + rng.range(-1.6, 1.6)], 0.1, rng.chance(0.5) ? 'steel' : 'yellow');
+      else if (kind < 0.85) k.cylH(px, 0.18, pz, 0.18, rng.range(0.6, 1.2), rng.chance(0.5) ? 'x' : 'z', 'hullGray', { collide: false, seg: 8 });
+      else k.box(px, 0.2, pz, 0.5, 0.4, 0.5, 'darkPanel', { collide: false, bevel: 0.04, rot: rng.range(0, 3) });
+    }
+  }
+
+  /** objective / wayfinding sign on two posts */
+  signPost(x: number, z: number, rot: number, label: Mat, y = 0, w = 2.4, h = 1.2): void {
+    if (this.blocked(x, z, w, 0.4, y, rot)) return;
+    const k = this.at(x, z, rot, y);
+    for (const s of [-1, 1]) k.box(s * (w / 2 - 0.15), 1.2, 0, 0.12, 2.4, 0.12, 'trim', { collide: false, bevel: 0.02 });
+    k.box(0, 2.3, -0.04, w + 0.16, h + 0.16, 0.08, 'trim', { collide: false, bevel: 0.03 });
+    k.panel(0, 2.3, 0.01, w, h, 0, 0, 1, label);
+    k.panel(0, 2.3, -0.09, w, h, 0, 0, -1, label);
+    k.box(0, 2.3 + h / 2 + 0.12, 0.1, w * 0.8, 0.06, 0.1, 'neonWarm', { collide: false, bevel: 0 });
+    this.b.world.addBox(k.p(0, 1.2, 0), V(w / 2, 0.08, 0.08), k.q(), true);
+  }
+
+  /** ore / spoil stockpile (walkable regolith heap with a crest); `len` along local x */
+  stockpile(x: number, z: number, rot: number, len = 9, h = 3.2, y = 0): void {
+    const k = this.at(x, z, rot, y);
+    k.berm(-len / 2, 0, len / 2, 0, h, 1.4, 7, 0, 'dirt');
+    // conical ends (angle of repose) instead of cut faces
+    for (const s of [-1, 1]) {
+      const g = new THREE.ConeGeometry(3.6, h + 0.4, 12, 1, true);
+      this.b.add('dirt', g, k.p(s * (len / 2), (h + 0.4) / 2 - 0.4, 0), k.q());
+      this.b.world.addSphere(k.p(s * (len / 2 + 0.6), -0.3, 0), 2.3, false);
+    }
+    const rng = new Rng(Math.floor(Math.abs(x * 7 + z * 13)));
+    for (let i = 0; i < 5; i++) {
+      const g = new THREE.DodecahedronGeometry(rng.range(0.35, 0.7), 0);
+      this.b.add('oreRock', g, k.p(rng.range(-len / 2 + 1, len / 2 - 1), rng.range(0.2, 0.6), rng.chance(0.5) ? 2.8 : -2.8), qY(rng.next() * 6), V(1, 0.7, 1));
+    }
+  }
+
   // ---------------------------------------------------------------- fortification (non-metal)
 
   sandbags(ax: number, az: number, bx: number, bz: number, h = 1.0, y = 0): void {
@@ -786,6 +913,39 @@ export class Kit {
     const s = len / n;
     for (let r = 0; r < rows; r++) for (let i = 0; i < n; i++) k.box(-len / 2 + (i + 0.5) * s, h / 2 + r * h, 0, s - 0.04, h, 1.05, 'hesco', { collide: false, bevel: 0.05 });
     this.b.world.addBox(k.p(0, (h * rows) / 2, 0), V(len / 2, (h * rows) / 2, 0.52), k.q(), false);
+  }
+  /**
+   * Line of precast concrete T-wall panels ("Alaska" blast barriers, ~1.5 m each) from a→b: blocks
+   * standing sightlines into gates / spawn doors. Non-metal; optional painted stripe (team colour).
+   */
+  tWall(ax: number, az: number, bx: number, bz: number, h = 3.4, y = 0, stripe: Mat | null = 'hazard'): void {
+    const len = Math.hypot(bx - ax, bz - az);
+    const rot = Math.atan2(-(bz - az), bx - ax);
+    const k = this.at((ax + bx) / 2, (az + bz) / 2, rot, y);
+    const n = Math.max(1, Math.round(len / 1.5));
+    const pw = len / n;
+    const prof: [number, number][] = [
+      [-0.62, 0],
+      [0.62, 0],
+      [0.62, 0.32],
+      [0.2, 0.52],
+      [0.16, h - 0.08],
+      [0.08, h],
+      [-0.08, h],
+      [-0.16, h - 0.08],
+      [-0.2, 0.52],
+      [-0.62, 0.32],
+    ];
+    for (let i = 0; i < n; i++) {
+      const u0 = -len / 2 + i * pw + 0.03;
+      const u1 = u0 + pw - 0.06;
+      k.extrude(u0, 0, u1, 0, 0, prof, 'concrete', { seg: 3 });
+      // lifting loops + stencil band
+      k.box((u0 + u1) / 2, h + 0.06, 0, 0.3, 0.12, 0.08, 'steel', { collide: false, bevel: 0.02 });
+      if (stripe) for (const s of [-1, 1]) k.panel((u0 + u1) / 2, h * 0.62, s * 0.18, pw - 0.3, 0.3, 0, 0, s, i % 2 ? stripe : 'trim');
+    }
+    this.b.world.addBox(k.p(0, h / 2, 0), V(len / 2, h / 2, 0.3), k.q(), false);
+    this.b.world.addBox(k.p(0, 0.22, 0), V(len / 2, 0.22, 0.6), k.q(), false);
   }
   /** concrete jersey barrier (serpentine checkpoints) */
   jersey(x: number, z: number, rot: number, len = 3, y = 0): void {

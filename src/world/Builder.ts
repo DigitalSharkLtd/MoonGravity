@@ -81,7 +81,10 @@ export type Mat =
   | 'growPink'
   | 'screenMap'
   | 'fabricTeal'
-  | 'fabricOrange';
+  | 'fabricOrange'
+  | 'signA'
+  | 'signB'
+  | 'signC';
 
 /** A static light baked into structure vertices (warm interior pools, doorway spills). */
 export interface BakeLight {
@@ -121,7 +124,24 @@ const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 const _v = new THREE.Vector3();
+const _bs = new THREE.Vector3();
+const _bc = new THREE.Vector3();
 const Y = new THREE.Vector3(0, 1, 0);
+
+/** Shadow-only layers: 5 is drawn by every sun cascade, 6 only by the nearest one (Lighting). */
+export const LAYER_SHADOW_ALL = 5;
+export const LAYER_SHADOW_NEAR = 6;
+/** spatial chunk size (m) of the shadow proxies, so each cascade culls what it doesn't cover */
+const PROXY_CHUNK = 56;
+
+interface ProxyBuf {
+  pos: number[];
+  idx: number[];
+}
+
+/** unit box (±0.5) as 8 corners + 12 outward-wound triangles */
+const BOX_V = [-0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5];
+const BOX_I = [0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5];
 
 export function scaleBoxUV(g: THREE.BufferGeometry, w: number, h: number, d: number): void {
   const uv = g.getAttribute('uv') as THREE.BufferAttribute;
@@ -170,6 +190,12 @@ export class StructureBuilder {
   /** props skipped because they overlapped a reserved zone (diagnostics) */
   skipped = 0;
   private beacons: { pos: THREE.Vector3; color: THREE.Color; period: number; phase: number }[] = [];
+  /** simplified shadow casters per chunk (key) and layer: boxes / 8-sided cylinders / raw meshes */
+  private proxies = new Map<string, ProxyBuf>();
+  /** triangles in the shadow proxies (diagnostics) */
+  proxyTris = 0;
+  /** set-dressing spots rejected by the placement checks (diagnostics) */
+  dressSkipped: string[] = [];
 
   constructor(world: PhysicsWorld, hf: Heightfield) {
     this.world = world;
@@ -255,6 +281,10 @@ export class StructureBuilder {
       dirt: pbr('b-dirt', { color: 0xa8a399, set: regolithSet(12), roughness: 1.05, metalness: 0, style: { rim: 0.08 } }),
       growPink: glowMat(0xff5ad2, 2.4),
       labelDepot: pbr('b-labelDepot', { map: labelTex('DEPOT 12', 'SUPPLY · O₂ · FUEL', '#3a3f4a', '#ffc21a'), roughness: 0.45, metalness: 0.1 }),
+      // objective wayfinding boards (front): big letter + site name, lit by the sign's own lamp
+      signA: pbr('b-signA', { map: labelTex('A', 'ISRU PLANT · ЗАВОД', '#16323a', '#7ff0e4'), roughness: 0.45, metalness: 0.1, emissive: 0x0d2c2a, emissiveIntensity: 0.6 }),
+      signB: pbr('b-signB', { map: labelTex('B', 'DRILL SITE · БУРОВАЯ', '#2a2410', '#ffc21a'), roughness: 0.45, metalness: 0.1, emissive: 0x2a2208, emissiveIntensity: 0.6 }),
+      signC: pbr('b-signC', { map: labelTex('C', 'ORE SILOS · СИЛОСЫ', '#3a1d10', '#ffb070'), roughness: 0.45, metalness: 0.1, emissive: 0x2c140a, emissiveIntensity: 0.6 }),
     };
     for (const k of ['glassDome', 'glassTint'] as Mat[]) (this.mats[k] as THREE.Material).depthWrite = false;
   }
@@ -273,7 +303,8 @@ export class StructureBuilder {
 
   add(mat: Mat, geo: THREE.BufferGeometry, pos: THREE.Vector3, quat: THREE.Quaternion, scale?: THREE.Vector3): void {
     _m.compose(pos, quat, scale ?? _s.set(1, 1, 1));
-    const g = geo.index ? geo : geo;
+    this.shadowProxy(mat, geo, _m, scale);
+    const g = geo;
     g.applyMatrix4(_m);
     let list = this.parts.get(mat);
     if (!list) {
@@ -281,6 +312,77 @@ export class StructureBuilder {
       this.parts.set(mat, list);
     }
     list.push(g);
+  }
+
+  /**
+   * Shadow casting goes through cheap proxies instead of the render meshes: chamfered boxes become
+   * 12-triangle boxes, cylinders 8-sided prisms, everything else keeps its triangles. Thin / small
+   * parts (rails, poles, trims, props < 0.45 m across) only cast in the nearest cascade, tiny bits
+   * (< 0.3 m) and decals, glows and glass don't cast at all.
+   */
+  private shadowProxy(mat: Mat, geo: THREE.BufferGeometry, m: THREE.Matrix4, scale?: THREE.Vector3): void {
+    const material = this.mats[mat] as THREE.Material & { isMeshBasicMaterial?: boolean };
+    if (material.isMeshBasicMaterial || material.transparent) return;
+    const ud = geo.userData as { shadow?: 'box' | 'cyl' | 'none'; r?: number; h?: number };
+    if (ud.shadow === 'none' || geo.type === 'PlaneGeometry') return;
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const bb = geo.boundingBox!;
+    bb.getSize(_bs);
+    if (scale) _bs.multiply(scale);
+    const d = [Math.abs(_bs.x), Math.abs(_bs.y), Math.abs(_bs.z)].sort((a, b) => a - b);
+    if (d[2] < 0.3) return;
+    const near = d[1] < 0.45;
+    bb.getCenter(_bc).applyMatrix4(m);
+    const key = `${Math.floor(_bc.x / PROXY_CHUNK)},${Math.floor(_bc.z / PROXY_CHUNK)},${near ? 1 : 0}`;
+    let buf = this.proxies.get(key);
+    if (!buf) this.proxies.set(key, (buf = { pos: [], idx: [] }));
+    const base = buf.pos.length / 3;
+    const e = m.elements;
+    const put = (x: number, y: number, z: number) => {
+      buf!.pos.push(e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]);
+    };
+    const params = (geo as THREE.BufferGeometry & { parameters?: Record<string, number> }).parameters;
+    const kind = ud.shadow ?? (geo.type === 'BoxGeometry' ? 'box' : geo.type === 'CylinderGeometry' ? 'cyl' : 'mesh');
+    if (kind === 'box') {
+      const sx = bb.max.x - bb.min.x;
+      const sy = bb.max.y - bb.min.y;
+      const sz = bb.max.z - bb.min.z;
+      const cx = (bb.max.x + bb.min.x) / 2;
+      const cy = (bb.max.y + bb.min.y) / 2;
+      const cz = (bb.max.z + bb.min.z) / 2;
+      for (let i = 0; i < 8; i++) put(cx + BOX_V[i * 3] * sx, cy + BOX_V[i * 3 + 1] * sy, cz + BOX_V[i * 3 + 2] * sz);
+      for (const i of BOX_I) buf.idx.push(base + i);
+      this.proxyTris += 12;
+    } else if (kind === 'cyl') {
+      const rt = params?.radiusTop ?? ud.r ?? (bb.max.x - bb.min.x) / 2;
+      const rb = params?.radiusBottom ?? ud.r ?? (bb.max.x - bb.min.x) / 2;
+      const hh = (params?.height ?? ud.h ?? bb.max.y - bb.min.y) / 2;
+      const n = rt + rb > 1.6 ? 12 : 8;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        put(Math.cos(a) * rb, -hh, Math.sin(a) * rb);
+        put(Math.cos(a) * rt, hh, Math.sin(a) * rt);
+      }
+      for (let i = 0; i < n; i++) {
+        const a0 = base + i * 2;
+        const a1 = base + ((i + 1) % n) * 2;
+        buf.idx.push(a0, a0 + 1, a1 + 1, a0, a1 + 1, a1);
+        if (i > 0 && i < n - 1) buf.idx.push(base, base + i * 2, base + (i + 1) * 2, base + 1, base + (i + 1) * 2 + 1, base + i * 2 + 1);
+      }
+      this.proxyTris += n * 2 + (n - 2) * 2;
+    } else {
+      const p = geo.getAttribute('position') as THREE.BufferAttribute;
+      const a = p.array as Float32Array;
+      for (let i = 0; i < p.count; i++) put(a[i * 3], a[i * 3 + 1], a[i * 3 + 2]);
+      if (geo.index) {
+        const ix = geo.index.array;
+        for (let i = 0; i < ix.length; i++) buf.idx.push(base + ix[i]);
+        this.proxyTris += ix.length / 3;
+      } else {
+        for (let i = 0; i < p.count; i++) buf.idx.push(base + i);
+        this.proxyTris += p.count / 3;
+      }
+    }
   }
 
   ground(x: number, z: number): number {
@@ -386,6 +488,40 @@ export class StructureBuilder {
     const lights = this.collectLights();
     const grid = lightGrid(lights);
     let bakeMs = 0;
+    const cover = this.coverMap();
+    // every plain opaque glow material (neons, screens, lamps, windows) shares one vertex-coloured draw
+    const glowParts: THREE.BufferGeometry[] = [];
+    for (const [mat, list] of this.parts) {
+      const m = this.mats[mat] as THREE.MeshBasicMaterial;
+      if (!list.length || !m.isMeshBasicMaterial || m.transparent || m.map || m.vertexColors) continue;
+      for (const g of list) {
+        const n = g.getAttribute('position').count;
+        const col = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          col[i * 3] = m.color.r;
+          col[i * 3 + 1] = m.color.g;
+          col[i * 3 + 2] = m.color.b;
+        }
+        let gg = g.index ? g : indexify(g);
+        for (const k of Object.keys(gg.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') gg.deleteAttribute(k);
+        if (!gg.getAttribute('uv')) gg.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+        gg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        glowParts.push(gg);
+      }
+      this.parts.set(mat, []);
+    }
+    if (glowParts.length) {
+      const merged = mergeGeometries(glowParts, false);
+      if (merged) {
+        merged.computeBoundingSphere();
+        const mesh = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
+        mesh.layers.set(LAYER_NO_OUTLINE);
+        mesh.matrixAutoUpdate = false;
+        mesh.name = 'static-glow';
+        this.group.add(mesh);
+      }
+      for (const g of glowParts) g.dispose();
+    }
     for (const [mat, list] of this.parts) {
       if (!list.length) continue;
       // normalize attributes: all need position/normal/uv, indexed
@@ -404,12 +540,14 @@ export class StructureBuilder {
       if (!glow) {
         const tb = performance.now();
         merged.setAttribute('bake', bakeVertices(merged, lights, grid, this.world));
+        if (!material.transparent) merged.setAttribute('aDust', this.dustVertices(merged, cover));
         bakeMs += performance.now() - tb;
         ensureBakePatch(material);
       }
       const mesh = new THREE.Mesh(merged, material);
       const clear = material.transparent;
-      mesh.castShadow = !glow && !clear;
+      // shadows come from the proxies below
+      mesh.castShadow = false;
       mesh.receiveShadow = !glow;
       if (glow || clear) mesh.layers.set(LAYER_NO_OUTLINE);
       if (clear) mesh.renderOrder = 2;
@@ -419,12 +557,87 @@ export class StructureBuilder {
       for (const g of list) g.dispose();
     }
     this.parts.clear();
+    this.buildShadowProxies();
     this.buildBeacons();
     this.group.userData.bakeMs = bakeMs;
     this.group.userData.lights = lights.length;
     this.group.userData.testPaths = this.testPaths;
     this.group.userData.skipped = this.skipped;
+    this.group.userData.proxyTris = this.proxyTris;
+    this.group.userData.dressSkipped = this.dressSkipped;
     return this.group;
+  }
+
+  /**
+   * Roof map (1 m cells): height of the highest collider top over each cell, so dust settles on
+   * exposed surfaces but not on floors under a roof.
+   */
+  private coverMap(): { x0: number; z0: number; nx: number; nz: number; top: Float32Array } {
+    const b = this.world.bounds;
+    const x0 = Math.floor(b.minX) - 2;
+    const z0 = Math.floor(b.minZ) - 2;
+    const nx = Math.ceil(b.maxX - b.minX) + 4;
+    const nz = Math.ceil(b.maxZ - b.minZ) + 4;
+    const top = new Float32Array(nx * nz).fill(-1e9);
+    const o = new THREE.Vector3();
+    const down = new THREE.Vector3(0, -1, 0);
+    for (let j = 0; j < nz; j++)
+      for (let i = 0; i < nx; i++) {
+        o.set(x0 + i + 0.5, 120, z0 + j + 0.5);
+        const hit = this.world.raycast(o, down, 240, { ignoreTerrain: true, forMove: true });
+        if (hit) top[j * nx + i] = hit.point.y;
+      }
+    return { x0, z0, nx, nz, top };
+  }
+
+  /**
+   * Per-vertex regolith dust (0..~0.6): thick at the foot of walls, a light film on exposed
+   * up-facing surfaces, little under roofs. Read by the structure shader patch.
+   */
+  private dustVertices(g: THREE.BufferGeometry, cover: { x0: number; z0: number; nx: number; nz: number; top: Float32Array }): THREE.BufferAttribute {
+    const pos = g.getAttribute('position') as THREE.BufferAttribute;
+    const nrm = g.getAttribute('normal') as THREE.BufferAttribute;
+    const P = pos.array as Float32Array;
+    const N = nrm.array as Float32Array;
+    const out = new Float32Array(pos.count);
+    for (let i = 0; i < pos.count; i++) {
+      const x = P[i * 3];
+      const y = P[i * 3 + 1];
+      const z = P[i * 3 + 2];
+      const ny = N[i * 3 + 1];
+      const h = y - this.hf.heightAt(x, z);
+      let d = 0;
+      if (h < 1.6) {
+        const t = Math.max(0, Math.min(1, h / 1.6));
+        d = (1 - t * t * (3 - 2 * t)) * 0.55;
+      }
+      if (ny > 0.5) d += (ny - 0.5) * 0.4;
+      if (d <= 0) continue;
+      const ci = Math.floor(x - cover.x0);
+      const cj = Math.floor(z - cover.z0);
+      if (ci >= 0 && cj >= 0 && ci < cover.nx && cj < cover.nz && cover.top[cj * cover.nx + ci] > y + 0.6) d *= 0.25;
+      out[i] = Math.min(0.62, d);
+    }
+    return new THREE.BufferAttribute(out, 1);
+  }
+
+  private buildShadowProxies(): void {
+    const mat = new THREE.MeshBasicMaterial({ colorWrite: false });
+    for (const [key, buf] of this.proxies) {
+      if (!buf.idx.length) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
+      g.setIndex(buf.pos.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(buf.idx, 1) : new THREE.Uint16BufferAttribute(buf.idx, 1));
+      g.computeBoundingSphere();
+      const mesh = new THREE.Mesh(g, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = false;
+      mesh.layers.set(key.endsWith(',1') ? LAYER_SHADOW_NEAR : LAYER_SHADOW_ALL);
+      mesh.matrixAutoUpdate = false;
+      mesh.name = 'shadow-proxy';
+      this.group.add(mesh);
+    }
+    this.proxies.clear();
   }
 
   private collectLights(): BakeLight[] {
@@ -585,13 +798,23 @@ function ensureBakePatch(m: THREE.Material): void {
   ud.bake = true;
   const patch = (shader: THREE.WebGLProgramParametersWithUniforms) => {
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec3 bake;\nvarying vec3 vBake;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBake = bake;');
+      .replace('#include <common>', '#include <common>\nattribute vec3 bake;\nattribute float aDust;\nvarying vec3 vBake;\nvarying float vDust;\nvarying vec3 vDustW;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBake = bake;\nvDust = aDust;\nvDustW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vBake;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBake;\nvarying float vDust;\nvarying vec3 vDustW;\nfloat dustH(vec2 p) { return fract(sin(dot(floor(p), vec2(12.9898, 78.233))) * 43758.5453); }\nfloat dustN(vec2 p) { vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(dustH(i), dustH(i + vec2(1.0, 0.0)), f.x), mix(dustH(i + vec2(0.0, 1.0)), dustH(i + vec2(1.0, 1.0)), f.x), f.y); }')
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        // settled regolith: soft, broken-up film (world-space noise), grey-beige, matte
+        float dN = dustN(vDustW.xz * 1.7 + vDustW.y * 0.9) * 0.6 + dustN(vDustW.xz * 5.3 - vDustW.y * 2.1) * 0.4;
+        float dAmt = clamp(vDust * (0.55 + 0.9 * dN), 0.0, 0.8);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.40, 0.385, 0.36) * (0.85 + 0.3 * dN), dAmt);`,
+      )
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 1.0, clamp(vDust * 1.2, 0.0, 0.85));')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor *= 1.0 - clamp(vDust * 1.1, 0.0, 0.8);')
       .replace('#include <aomap_fragment>', 'reflectedLight.indirectDiffuse += vBake * diffuseColor.rgb;\n#include <aomap_fragment>');
   };
-  addPatch(m, 'bake', patch);
+  addPatch(m, 'bake2', patch);
   // Lighting (CSM) rebuilds the chain from userData.baseOBC when a new map is loaded: keep the patch there too
   if (ud.baseOBC) {
     const base = ud.baseOBC;

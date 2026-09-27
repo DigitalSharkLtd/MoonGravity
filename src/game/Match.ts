@@ -4,8 +4,8 @@ import type { Fighter } from './Fighter';
 import { makeWeapon } from './Fighter';
 import { ModeInfo, WeaponId, MatchResult, ScoreRow, RibbonId } from './Types';
 import type { PickupKind } from '../world/Layouts';
-import { glowMat, toonMat } from '../render/Toon';
 import { LAYER_NO_OUTLINE } from '../render/Pipeline';
+import { buildPickupMesh, buildPodMesh } from './PropMeshes';
 
 export interface CPState {
   id: 'A' | 'B' | 'C';
@@ -24,6 +24,21 @@ interface Pickup {
   respawn: number;
   t: number; // time until available (0 = available)
   mesh: THREE.Group;
+}
+
+/**
+ * Pickup kinds (layout spot kinds, placed by the level designer):
+ * - o2      → life-support canister: O₂ to 100 %, suit +50 %, +25 HP (15 s)
+ * - armor   → armour pack: suit fully restored, +100 HP (25 s)
+ * - ammo    → power cell: full magazine + reserve, heat vented, jetpack refuelled, +6 % ultimate (20 s)
+ * - grenade → gadget kit: ability charges + grapple refilled, +1 sealant kit (24 s)
+ */
+export const PICKUP_RESPAWN: Record<PickupKind, number> = { o2: 15, armor: 25, ammo: 20, grenade: 24 };
+export interface PickupGain {
+  hp: number;
+  suit: number;
+  o2: number;
+  ult: number;
 }
 
 export interface Pod {
@@ -83,44 +98,13 @@ export class Match {
       const mesh = this.pickupMesh(p.kind);
       mesh.position.copy(p.pos);
       game.world.scene.add(mesh);
-      this.pickups.push({ kind: p.kind, pos: p.pos.clone(), respawn: p.kind === 'armor' ? 25 : 18, t: 0, mesh });
+      this.pickups.push({ kind: p.kind, pos: p.pos.clone(), respawn: PICKUP_RESPAWN[p.kind] ?? 18, t: 0, mesh });
     }
   }
 
+  /** pad + floating item (children 'ring' and 'item' are animated in updatePickups) */
   private pickupMesh(kind: PickupKind): THREE.Group {
-    const g = new THREE.Group();
-    const col = kind === 'o2' ? 0x7dd8ff : kind === 'armor' ? 0xffd24a : kind === 'ammo' ? 0xff8a3a : 0x9dff7a;
-    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, 0.12, 20), toonMat(0x3b4150, { spec: 0.6 }));
-    pad.position.y = 0.06;
-    pad.receiveShadow = true;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.035, 6, 32), glowMat(col, 3));
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = 0.13;
-    ring.layers.set(LAYER_NO_OUTLINE);
-    const item = new THREE.Group();
-    if (kind === 'o2') {
-      const tank = new THREE.Mesh(new THREE.CapsuleGeometry(0.16, 0.4, 6, 14), toonMat(0xe8eef4, { spec: 0.8 }));
-      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.165, 0.08, 14), glowMat(col, 2));
-      item.add(tank, band);
-    } else if (kind === 'armor') {
-      const plate = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.5, 0.12), toonMat(0xffc21a, { spec: 0.9 }));
-      const cross = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.13), glowMat(0xffffff, 2));
-      item.add(plate, cross);
-    } else if (kind === 'ammo') {
-      const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.3), toonMat(0x4a5360, { spec: 0.6 }));
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.51, 0.06, 0.31), glowMat(col, 2));
-      item.add(box, stripe);
-    } else {
-      const s = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), toonMat(0x39424f, { spec: 0.8 }));
-      const l = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 6), glowMat(col, 4));
-      l.position.y = 0.17;
-      item.add(s, l);
-    }
-    item.position.y = 0.8;
-    item.name = 'item';
-    item.traverse((o) => ((o as THREE.Mesh).castShadow = true));
-    g.add(pad, ring, item);
-    return g;
+    return buildPickupMesh(kind);
   }
 
   // ------------------------------------------------------------------ spawns
@@ -278,18 +262,32 @@ export class Match {
     for (let pi = 0; pi < this.pickups.length; pi++) {
       const p = this.pickups[pi];
       const item = p.mesh.getObjectByName('item')!;
+      const ring = p.mesh.getObjectByName('ring');
       if (p.t > 0) {
         p.t -= dt;
         item.visible = false;
+        // the pad ring closes in as the item comes back, and blinks for the last 3 s
+        if (ring) {
+          ring.scale.setScalar(0.3 + 0.7 * (1 - Math.max(0, p.t) / p.respawn));
+          ring.visible = p.t > 3 || Math.sin(this.time * 12) > -0.2;
+        }
         continue;
       }
       item.visible = true;
+      if (ring) {
+        ring.visible = true;
+        ring.scale.setScalar(1 + Math.sin(this.time * 3 + p.pos.z) * 0.04);
+      }
       item.rotation.y += dt * 1.5;
       item.position.y = 0.8 + Math.sin(this.time * 2 + p.pos.x) * 0.08;
       if (!g.isAuthority) continue;
       for (const f of g.players) {
         if (!f.alive) continue;
-        if (f.body.pos.distanceTo(p.pos) > 1.4) continue;
+        // pick-up volume: a short cylinder over the pad (lunar hops over it still count)
+        const dx = f.body.pos.x - p.pos.x;
+        const dz = f.body.pos.z - p.pos.z;
+        const dy = f.body.pos.y - p.pos.y;
+        if (dx * dx + dz * dz > 1.35 * 1.35 || dy < -0.9 || dy > 2.2) continue;
         if (this.applyPickup(f, p.kind)) {
           p.t = p.respawn;
           g.onPickup(f, p.kind, p.pos, pi);
@@ -299,34 +297,60 @@ export class Match {
     }
   }
 
+  /** what the last applyPickup gave (for the HUD feedback) */
+  lastGain: PickupGain = { hp: 0, suit: 0, o2: 0, ult: 0 };
+
   applyPickup(f: Fighter, kind: PickupKind): boolean {
+    const hp0 = f.health;
+    const su0 = f.suit;
+    const o20 = f.oxygen;
+    const ul0 = f.ultCharge;
+    let ok = false;
     switch (kind) {
       case 'o2':
-        if (f.oxygen > 95 && f.suit >= f.maxSuit * 0.99) return false;
+        if (f.oxygen > 95 && f.suit >= f.maxSuit * 0.99 && f.health >= f.maxHealth) return false;
         f.oxygen = 100;
         f.suit = Math.max(f.suit, Math.min(f.maxSuit, f.suit + f.maxSuit * 0.5));
-        return true;
+        f.health = Math.min(f.maxHealth, f.health + 25);
+        ok = true;
+        break;
       case 'armor':
         if (f.suit >= f.maxSuit && f.health >= f.maxHealth) return false;
         f.suit = f.maxSuit;
-        f.health = Math.min(f.maxHealth, f.health + 75);
-        return true;
+        f.health = Math.min(f.maxHealth, f.health + 100);
+        ok = true;
+        break;
       case 'ammo': {
         const w = f.weapon;
-        if (w.reserve >= w.def.reserve) return false;
-        w.reserve = w.def.reserve;
-        return true;
+        const mag = f.magSize;
+        const needsAmmo = w.def.heatPerShot > 0 ? w.heat > 0.15 || w.ventT > 0 : w.reserve < w.def.reserve || (w.ammo < mag && w.def.mag < 900);
+        if (!needsAmmo && f.body.jetFuel > 0.95 && f.ultReady) return false;
+        if (w.def.heatPerShot > 0) {
+          w.heat = 0;
+          w.ventT = 0;
+        } else if (w.def.mag < 900) {
+          w.reserve = w.def.reserve;
+          w.ammo = Math.max(w.ammo, mag);
+          w.reloadT = 0;
+        }
+        f.body.jetFuel = 1;
+        f.ultCharge = Math.min(f.ultCostEff, f.ultCharge + f.ultCostEff * 0.06);
+        ok = true;
+        break;
       }
       case 'grenade':
-        if (f.sealants >= f.def.sealants + 1 && f.abilities.every((a) => a.charges >= a.maxCharges)) return false;
+        if (f.sealants >= f.def.sealants + 1 && f.abilities.every((a) => a.charges >= a.maxCharges) && f.grappleCd <= 0) return false;
         f.sealants = Math.min(f.def.sealants + 1, f.sealants + 1);
         for (const a of f.abilities) {
           a.charges = a.maxCharges;
           a.cooldown = 0;
         }
-        return true;
+        f.grappleCd = 0;
+        ok = true;
+        break;
     }
-    return false;
+    this.lastGain = { hp: Math.round(f.health - hp0), suit: Math.round(f.maxSuit > 0 ? ((f.suit - su0) / f.maxSuit) * 100 : 0), o2: Math.round(f.oxygen - o20), ult: Math.round(f.ultCostEff > 0 ? ((f.ultCharge - ul0) / f.ultCostEff) * 100 : 0) };
+    return ok;
   }
 
   nearestPickup(pos: THREE.Vector3, kinds: PickupKind[]): THREE.Vector3 | null {
@@ -394,27 +418,7 @@ export class Match {
 
   spawnPod(pos: THREE.Vector3, weapon: WeaponId): void {
     const g = this.game;
-    const mesh = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 1.8, 10), toonMat(0xe8e6e0, { spec: 0.6 }));
-    body.position.y = 0.9;
-    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.7, 0.7, 10), toonMat(0xff6a1f, { spec: 0.6 }));
-    cap.position.y = 2.15;
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 0.2, 10), glowMat(0xffd24a, 3));
-    band.position.y = 1.2;
-    band.layers.set(LAYER_NO_OUTLINE);
-    for (let i = 0; i < 3; i++) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.9, 0.1), toonMat(0x3b4150));
-      const a = (i / 3) * Math.PI * 2;
-      leg.position.set(Math.cos(a) * 0.8, 0.3, Math.sin(a) * 0.8);
-      leg.rotation.set(Math.sin(a) * 0.4, 0, -Math.cos(a) * 0.4);
-      mesh.add(leg);
-    }
-    const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 120, 8, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffd24a).multiplyScalar(2), transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-    beacon.position.y = 60;
-    beacon.layers.set(LAYER_NO_OUTLINE);
-    beacon.visible = false;
-    mesh.add(body, cap, band, beacon);
-    mesh.traverse((o) => ((o as THREE.Mesh).castShadow = true));
+    const { mesh, beacon } = buildPodMesh();
     g.world.scene.add(mesh);
     this.pod = { pos: pos.clone(), t: 0, landed: false, weapon, mesh, beacon };
     g.onPodIncoming(pos, g.isAuthority ? weapon : undefined);

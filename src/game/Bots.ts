@@ -4,6 +4,7 @@ import type { Fighter } from './Fighter';
 import type { Summon } from './Summons';
 import { NavGrid } from './Nav';
 import { MOON_G } from '../core/Physics';
+import { adsCapable } from '../weapons/WeaponDefs';
 import type { BotDifficulty, HeroId } from './Types';
 
 interface Skill {
@@ -66,8 +67,14 @@ interface BotBrain {
   proneT: number;
   grappleAim: THREE.Vector3 | null;
   grappleAimT: number;
+  /** the grapple shot is a combat gap-closer (Blade): it overrides target aiming for a moment */
+  grappleCombat: boolean;
   lastHealth: number;
   hurtT: number; // time since last damage taken
+  /** riveter: letting the heat drop before firing again */
+  coolT: number;
+  /** grenade launcher: throttle for remote-detonation checks */
+  detT: number;
 }
 
 const _v = new THREE.Vector3();
@@ -131,8 +138,11 @@ export class Bots {
         proneT: 0,
         grappleAim: null,
         grappleAimT: 0,
+        grappleCombat: false,
         lastHealth: f.health,
         hurtT: 99,
+        coolT: 0,
+        detT: 0,
       };
       this.brains.set(f.id, b);
     }
@@ -182,6 +192,7 @@ export class Bots {
     it.slot = -1;
     it.yaw = 0;
     it.pitch = 0;
+    it.altPressed = false;
     if (!f.alive) return;
     body.magOn = false; // bots navigate on the ground / floors (mag walking would derail paths)
     const servitor = f.summonOf >= 0;
@@ -209,7 +220,14 @@ export class Bots {
 
     // ---- survival ----
     if (f.breached && f.sealants > 0 && f.sealT < 0 && (!visible || f.oxygen < 25)) it.sealant = true;
-    if (f.activeWeapon.ammo === 0 || (!visible && f.activeWeapon.ammo < f.activeWeapon.def.mag * 0.35 && f.activeWeapon.def.mag < 900)) it.reload = true;
+    const aw = f.activeWeapon;
+    if (aw.def.heatPerShot > 0) {
+      // heat weapons: vent between fights instead of reloading
+      if (!visible && aw.heat > 0.5) it.reload = true;
+    } else if (aw.ammo === 0 || (!visible && aw.ammo < aw.def.mag * 0.35 && aw.def.mag < 900)) it.reload = true;
+    if (b.coolT > 0) b.coolT -= dt;
+    // grenade launcher: remote-detonate a grenade at its closest pass by an enemy
+    if (aw.def.alt === 'detonate' && this.grenadeNearEnemy(f)) it.altPressed = true;
     if (f.superWeapon && f.slot === 0 && visible) it.slot = 1;
 
     // ---- aiming ----
@@ -223,7 +241,22 @@ export class Bots {
       aimDir = this.aimAt(f, target, visible ? null : b.lastSeen, eye);
     }
     const moveDir = this.followPath(f, b, dt);
-    if (b.grappleAim && !aimDir) {
+    // Blade: grapple onto the ground at the target's feet to close the gap (then brake and cut)
+    if (f.hero === 'blade' && !servitor && visible && target && !b.grappleAim && f.grappleCd <= 0 && !body.grapple && dist > 9 && dist < 32 && Math.random() < dt * (0.6 + this.skill.tactics * 1.5)) {
+      _c.copy(body.pos).sub(target.body.pos).setY(0);
+      if (_c.lengthSq() > 1e-4) _c.normalize();
+      _f.copy(target.body.pos).addScaledVector(_c, 1.2);
+      _f.y += 0.1;
+      const dir = _w.copy(_f).sub(eye);
+      const len = dir.length();
+      const hit = g.world.physics.raycast(eye, dir.divideScalar(len), len + 1.5, { forMove: true });
+      if (hit && hit.t > 3 && hit.point.distanceTo(_f) < 2.2) {
+        b.grappleAim = hit.point.clone();
+        b.grappleAimT = 0.45;
+        b.grappleCombat = true;
+      }
+    }
+    if (b.grappleAim && (!aimDir || b.grappleCombat)) {
       // lining up a grapple shot toward a higher floor
       b.grappleAimT -= dt;
       const d = body.aimDeltas(_w.copy(b.grappleAim).sub(eye).normalize());
@@ -233,13 +266,18 @@ export class Bots {
       if (Math.abs(d.yaw) < 0.05 && Math.abs(d.pitch) < 0.05) {
         it.grapple = true;
         b.grappleAim = null;
-      } else if (b.grappleAimT <= 0) b.grappleAim = null;
+        b.grappleCombat = false;
+      } else if (b.grappleAimT <= 0) {
+        b.grappleAim = null;
+        b.grappleCombat = false;
+      }
     } else if (aimDir) {
       // noisy human-like aim
       b.aimNoiseT -= dt;
       if (b.aimNoiseT <= 0) {
         b.aimNoiseT = 0.25 + Math.random() * 0.35;
-        const e = this.skill.aimError * (0.5 + Math.min(1.5, body.moveSpeed / 4)) * (target && target.body.moveSpeed > 3 ? 1.3 : 1) * (body.stance === 'prone' || body.crouching ? 0.7 : 1);
+        // (railgun: bots get extra wobble — a perfectly steady AI sniper that one-shots is no fun)
+        const e = this.skill.aimError * (0.5 + Math.min(1.5, body.moveSpeed / 4)) * (target && target.body.moveSpeed > 3 ? 1.3 : 1) * (body.stance === 'prone' || body.crouching ? 0.7 : 1) * (f.activeWeapon.def.alt === 'scope' ? 1.6 : 1);
         b.aimNoise.set((Math.random() * 2 - 1) * e, (Math.random() * 2 - 1) * e);
       }
       const d = body.aimDeltas(aimDir);
@@ -310,12 +348,18 @@ export class Bots {
     }
     // stances & movement tech
     this.stances(f, b, visible ? target : null, dist, dt, b.hurtT < 0.6);
-    // occasional lunar hops (and when stuck)
+    // occasional lunar hops (and when stuck). In 1/6 g a hop keeps you airborne ~3.5 s on a predictable
+    // arc, so fighting bots hop rarely, and melee bots never hop while closing in
     b.jumpT -= dt;
     if (b.jumpT <= 0 && body.grounded && body.stance !== 'prone') {
-      b.jumpT = visible ? 1.5 + Math.random() * 3 : 4 + Math.random() * 6;
-      if (visible || Math.random() < 0.3) it.jumpPressed = it.jump = true;
+      b.jumpT = visible ? 3 + Math.random() * 4 : 4 + Math.random() * 6;
+      const closing = f.hero === 'blade' && !servitor && visible && dist < 16;
+      if (!closing && (visible ? Math.random() < 0.6 : Math.random() < 0.3)) it.jumpPressed = it.jump = true;
     }
+    // fast-fall with the down-thrusters once past the apex (smarter bots don't float in the open)
+    if (!body.grounded && visible && body.vel.y < 0.5 && !body.jetting && !body.grapple && Math.random() < this.skill.tactics) it.crouch = true;
+    // Blade: moon-step (second jump) toward a target that is above / across a gap
+    if (f.hero === 'blade' && !servitor && visible && target && !body.grounded && body.vel.y < 0 && target.body.pos.y > body.pos.y + 1 && dist < 12) it.jumpPressed = true;
     // stuck detection
     if (moveDir && body.grounded) {
       if (body.pos.distanceTo(b.lastPos) < 0.6 * dt * 4) b.stuckT += dt;
@@ -691,21 +735,28 @@ export class Bots {
     if (lastSeen) aimPoint.copy(lastSeen).addScaledVector(t.body.up, 1.2);
     else {
       // headshots from good snipers, chest otherwise
-      const headBias = f.hero === 'needle' ? 0.8 : this.skill.aimError < 0.03 ? 0.35 : 0.1;
+      // snipers go for heads more the better they are (easy ≈ 30 %, veteran ≈ 72 %)
+      const skill01 = Math.max(0, Math.min(1, 1 - this.skill.aimError / 0.085));
+      const headBias = f.hero === 'needle' ? 0.3 + skill01 * 0.5 : this.skill.aimError < 0.03 ? 0.35 : 0.1;
       t.hitbox(Math.random() < headBias ? 0 : 1, aimPoint);
+      // grenades: aim at the feet — a near miss lands in splash range and gets remote-detonated
+      if (w.alt === 'detonate' && t.body.grounded) aimPoint.copy(t.body.pos).addScaledVector(t.body.up, 0.35);
     }
     const dir = aimPoint.clone().sub(eye);
-    if (w.kind === 'projectile' && w.speed > 0) {
+    // the slug is much faster than the pellets; everything else uses the weapon's own muzzle speed
+    const speed = w.alt === 'slug' && f.activeWeapon.altCd <= 0 && dir.length() > 11 ? 165 : w.speed;
+    if (w.kind === 'projectile' && speed > 0) {
       const dist = dir.length();
-      const tFly = dist / w.speed;
-      aimPoint.addScaledVector(t.body.vel, tFly * 0.9);
+      const tFly = dist / speed;
+      // lead by the relative velocity: shots inherit half of the shooter's own velocity
+      aimPoint.addScaledVector(t.body.vel, tFly * 0.9).addScaledVector(f.body.vel, -0.5 * tFly);
       dir.copy(aimPoint).sub(eye);
       if (w.gravity > 0) {
-        // ballistic solution (lower arc)
+        // ballistic solution (lower arc) with the same lunar gravity the projectile uses
         const gEff = MOON_G * w.gravity;
         const h = dir.y;
         const dxz = Math.hypot(dir.x, dir.z);
-        const v = w.speed;
+        const v = speed;
         const disc = v ** 4 - gEff * (gEff * dxz * dxz + 2 * h * v * v);
         if (disc >= 0 && dxz > 0.5) {
           const ang = Math.atan((v * v - Math.sqrt(disc)) / (gEff * dxz));
@@ -718,16 +769,59 @@ export class Bots {
     return dir.normalize();
   }
 
+  /**
+   * One of this bot's grenades is at its closest pass (within 3.2 m) by an enemy it can hit.
+   * Whether the bot catches that moment is rolled once per grenade from its skill.
+   */
+  private grenadeNearEnemy(f: Fighter): boolean {
+    const g = this.game;
+    let fire = false;
+    for (const p of g.combat.projectiles) {
+      if (p.dead || p.ghost || p.owner !== f.id || p.kind !== 'grenade' || p.age < 0.12) continue;
+      let st = this.gren.get(p.id);
+      if (!st) {
+        st = { last: Infinity, will: Math.random() < 0.45 + this.skill.tactics * 0.5 };
+        this.gren.set(p.id, st);
+      }
+      let dmin = Infinity;
+      for (const o of g.fighters) {
+        if (!o.alive || !g.areEnemies(f, o)) continue;
+        const d = o.hitbox(1, _v).distanceTo(p.pos);
+        if (d < dmin && (d > 3.2 || g.world.physics.visible(p.pos, _v))) dmin = d;
+      }
+      // moving away again (or resting) inside the kill radius → now
+      if (st.will && dmin < 3.2 && (dmin > st.last + 0.01 || p.vel.lengthSq() < 1)) fire = true;
+      st.last = dmin;
+    }
+    if (this.gren.size > 64) for (const id of this.gren.keys()) if (!g.combat.projectiles.some((q) => q.id === id)) this.gren.delete(id);
+    return fire;
+  }
+  private gren = new Map<number, { last: number; will: boolean }>();
+
   private combat(f: Fighter, b: BotBrain, t: Fighter, dist: number): void {
     const it = f.intent;
     const w = f.activeWeapon;
-    if (w.def.kind === 'melee') {
-      if (dist < w.def.meleeRange + 0.4) it.fire = it.firePressed = true;
+    const def = w.def;
+    if (def.kind === 'melee') {
+      // swing a little early: the cleave reaches past the feet-to-feet distance
+      if (dist < def.meleeRange + 0.9) it.fire = it.firePressed = true;
       return;
     }
+    // heat discipline: let the riveter breathe before it locks up (harder bots manage it better)
+    if (def.heatPerShot > 0) {
+      if (w.ventT > 0) return;
+      if (w.heat > 0.93 - this.skill.tactics * 0.12) b.coolT = 0.35 + Math.random() * 0.4;
+      if (b.coolT > 0) return;
+    }
+    // weapon skills
+    if (def.alt === 'slug' && w.altCd <= 0 && w.ammo >= def.altAmmo && dist > 11 && dist < 45) {
+      it.altPressed = true;
+      return;
+    }
+    if (def.alt === 'glob' && w.altCd <= 0 && w.ammo >= def.altAmmo && dist < 16 && Math.random() < 0.25 + this.skill.tactics * 0.3) it.altPressed = true;
     if (w.def.id === 'rail') {
       it.aim = true;
-      if (w.charge > 0.8 || dist < 15) it.fire = it.firePressed = true;
+      if (w.charge > 0.95 || dist < 12) it.fire = it.firePressed = true;
       return;
     }
     if (w.def.id === 'nuke') {
@@ -743,7 +837,7 @@ export class Bots {
       if (b.holdFireT > 0) return;
       b.holdFireT = 0.1 + Math.random() * 0.15;
     }
-    it.aim = dist > 25 && w.def.id !== 'plasma';
+    it.aim = adsCapable(def) && dist > 22;
     it.fire = true;
     it.firePressed = true;
   }
@@ -810,8 +904,8 @@ export class Bots {
         else if (a1 && t && (dist > 10 || hurt < 0.4)) it.ability1 = true;
         break;
       case 'blade':
-        if (a2 && tookDamage && t && dist > 3) it.ability2 = true; // deflect incoming fire
-        else if (a1 && t && dist > 4 && dist < 13) it.ability1 = true; // lunge in
+        if (a2 && (tookDamage || b.hurtT < 0.5) && t && dist > 4) it.ability2 = true; // deflect incoming fire while closing in
+        else if (a1 && t && dist > 4.5 && dist < 13) it.ability1 = true; // lunge in
         else if (a1 && hurt < 0.3 && t) it.ability1 = true; // or lunge out
         break;
       case 'forge':

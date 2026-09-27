@@ -201,6 +201,7 @@ export class HeroModel {
   private jetFlames: THREE.Mesh[] = [];
   private soleGlow: THREE.Mesh[] = [];
   private weaponHolder = new THREE.Group();
+  private weaponHolderL = new THREE.Group();
   weapon: WeaponModel | null = null;
   weaponId: WeaponId | null = null;
   muzzleWorld = new THREE.Vector3();
@@ -410,6 +411,8 @@ export class HeroModel {
     }
     this.bones.get('handR')!.add(this.weaponHolder);
     this.weaponHolder.position.set(0, -0.06, -0.02);
+    this.bones.get('handL')!.add(this.weaponHolderL);
+    this.weaponHolderL.position.set(0, -0.06, -0.02);
 
     this.cloakMat = new THREE.MeshBasicMaterial({ color: 0x9fb8ff, transparent: true, opacity: 0.06, depthWrite: false, blending: THREE.AdditiveBlending });
     this.setWeapon(variant === 'servitor' ? 'pulse' : def.weapon);
@@ -457,11 +460,22 @@ export class HeroModel {
   setWeapon(id: WeaponId | null): void {
     if (id === this.weaponId) return;
     if (this.weapon) this.weaponHolder.remove(this.weapon.group);
+    this.weaponHolderL.clear();
     this.weaponId = id;
     this.weapon = id ? buildWeaponModel(id, new THREE.Color(HEROES[this.hero].color).getHex()) : null;
     if (this.weapon) {
       this.weapon.group.rotation.x = -Math.PI / 2;
       this.weaponHolder.add(this.weapon.group);
+      // twin pistols: the left one is held by the left hand, same grip offset as the right
+      const off = this.weapon.offhand;
+      if (off) {
+        off.parent?.remove(off);
+        off.position.set(0, 0, 0);
+        const wrap = new THREE.Group();
+        wrap.rotation.x = -Math.PI / 2;
+        wrap.add(off);
+        this.weaponHolderL.add(wrap);
+      }
     }
   }
 
@@ -489,7 +503,7 @@ export class HeroModel {
       } else if (m.userData.fpLayers !== undefined) m.layers.mask = m.userData.fpLayers;
     }
     for (const o of this.outlines) o.visible = !fp && this.highlight !== 'none';
-    this.weaponHolder.visible = !fp;
+    this.weaponHolder.visible = this.weaponHolderL.visible = !fp;
     for (const g of this.soleGlow) g.layers.set(fp ? 31 : LAYER_NO_OUTLINE);
     if (this.visorCrack) this.visorCrack.layers.set(fp ? 31 : 0);
   }
@@ -502,7 +516,7 @@ export class HeroModel {
     const cloaked = amount > 0.5;
     this.meshes.forEach((m, i) => (m.material = cloaked ? this.cloakMat : this.baseMats[i]));
     for (const o of this.outlines) o.visible = !cloaked && this.highlight !== 'none';
-    this.weaponHolder.visible = !cloaked;
+    this.weaponHolder.visible = this.weaponHolderL.visible = !cloaked;
   }
 
   update(dt: number, s: AnimState, time: number): void {

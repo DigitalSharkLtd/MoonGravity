@@ -16,6 +16,8 @@ const _h = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
 const _q3 = new THREE.Quaternion();
+/** first person: the left twin pistol sits this far left of the right one (hand and gun share it) */
+const TWIN_GAP_VM = -0.36;
 /** foregrip distance along the barrel for the first-person support hand */
 const FOREGRIP_VM: Partial<Record<WeaponId, number>> = { pulse: 0.26, rail: 0.34, plasma: 0.22, glauncher: 0.24, sealer: 0.2, nuke: 0.1, singularity: 0.26, helios: 0.26, riveter: 0.24, burst: 0.26 };
 
@@ -207,6 +209,7 @@ export class Viewmodel {
       }
     });
     this.gun.add(this.weapon.group);
+    if (this.weapon.offhand) this.weapon.offhand.position.x = TWIN_GAP_VM; // left pistol exactly in the left hand
     this.reticle = null;
     const sg = this.weapon.sight;
     if (sg) {
@@ -345,7 +348,7 @@ export class Viewmodel {
     const gripR = _c.copy(gp).addScaledVector(gup, -0.06).addScaledVector(fwd, 0.02);
     this.aimArm(this.armR, gripR, _d.set(0.32, -0.62, 0.72), gq);
     let gripL: THREE.Vector3;
-    if (twin) gripL = _e.copy(gripR).add(_f.set(-0.36, 0, 0));
+    if (twin) gripL = _e.copy(gripR).addScaledVector(_f.set(1, 0, 0).applyQuaternion(gq), TWIN_GAP_VM);
     else gripL = _e.copy(gp).addScaledVector(fwd, fg).addScaledVector(gup, blade ? -0.08 : -0.045).add(_f.set(-0.01, 0, 0));
     // aiming through the optic: the support hand slides back and under the handguard, out of the sight picture
     if (!blade && !twin && this.ads > 0.01) gripL.addScaledVector(fwd, -0.1 * this.ads).addScaledVector(gup, -0.14 * this.ads).add(_f.set(0.02 * this.ads, 0, 0));

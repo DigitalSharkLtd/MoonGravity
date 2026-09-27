@@ -12,6 +12,8 @@ export interface WeaponModel {
   glows: THREE.Mesh[];
   /** parts that animate (drum spin, charge rings) — spun around their local Z */
   spin?: THREE.Object3D;
+  /** second weapon held in the left hand (twin pistols); positioned in the gun frame, detachable */
+  offhand?: THREE.Object3D;
   /** sight line for aiming down sights: height above the grip, rear / front window distance (f) and front window half-size */
   sight: { y: number; near: number; far: number; hw: number } | null;
 }
@@ -257,6 +259,7 @@ interface Ctx {
   glows: THREE.Mesh[];
   muzzle: THREE.Object3D;
   spin?: THREE.Object3D;
+  offhand?: THREE.Object3D;
 }
 
 /** Condor's heavy pulse rifle: white split shell over a gunmetal chassis, vented shroud, under-barrel helix pod, skeleton stock */
@@ -621,6 +624,7 @@ function twinarc(c: Ctx): void {
     const pg = new THREE.Group();
     pg.position.x = ox;
     g.add(pg);
+    if (ox !== 0) c.offhand = pg; // the left pistol: holders re-parent it to the left hand
     const at = kit(pg);
     const yc = 0.045;
     at(side([[-0.06, -0.004, 0.01], [0.2, -0.004, 0.01], [0.225, 0.02, 0.008], [0.225, 0.074, 0.008], [0.0, 0.086, 0.012], [-0.06, 0.074, 0.012]], 0.05, { bevel: 0.005, top: 0.2 }), D);
@@ -1048,9 +1052,10 @@ export function buildWeaponModel(id: WeaponId, tint?: number): WeaponModel {
     sight = { y: (lo + hi) / 2, near: Math.min(...sightWins.map((w) => w[2])), far: front[2], hw: front[3] };
   }
   g.add(c.muzzle);
-  mergeStatic(g, [...c.glows, c.spin]);
+  if (c.offhand) mergeStatic(c.offhand, c.glows);
+  mergeStatic(g, [...c.glows, c.spin, c.offhand]);
   g.traverse((o) => {
     if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true;
   });
-  return { group: g, muzzle: c.muzzle, glows: c.glows, spin: c.spin, sight };
+  return { group: g, muzzle: c.muzzle, glows: c.glows, spin: c.spin, sight, offhand: c.offhand };
 }

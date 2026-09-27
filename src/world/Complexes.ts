@@ -1239,7 +1239,7 @@ export function habTown(k: Kit, m: Markers, o: { seed?: number; R?: number } = {
       lightI: 5,
     });
     // balcony reaching the central ring
-    hk.span(-2.2, FLOOR - 0.3, 3.5, 2.2, FLOOR, r - 3.6, 'wood', { bevel: 0.04 });
+    hk.span(-2.2, FLOOR - 0.3, 3.5, 2.2, FLOOR, r - 3.76, 'wood', { bevel: 0.04 }); // ends at the ring's outer edge (3.8) instead of lying on it
     hk.railing(-2.15, 3.6, -2.15, r - 3.7, FLOOR, { glass: true, mat: 'brass' });
     hk.railing(2.15, 3.6, 2.15, r - 3.7, FLOOR, { glass: true, mat: 'brass' });
     hk.light(0, FLOOR - 0.6, 4.2, WARM, 2.5, 5, { dir: [0, -1, 0], cone: 0.1 });

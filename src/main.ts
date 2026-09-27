@@ -475,6 +475,21 @@ function frame(): void {
   } else input.endFrame();
 }
 
+// A hidden tab gets no animation frames. A hosted match must keep simulating (the clients depend on
+// it), so while the host's tab is in the background the game is stepped from a timer, without rendering.
+setInterval(() => {
+  if (!document.hidden || state !== 'match' || !game || !net || net.role !== 'host') return;
+  const now = performance.now();
+  let t = Math.min(1, (now - last) / 1000);
+  last = now;
+  while (t > 0.001) {
+    const d = Math.min(0.1, t);
+    game.update(d);
+    net.update(d);
+    t -= d;
+  }
+}, 50);
+
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();

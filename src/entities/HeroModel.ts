@@ -451,6 +451,22 @@ export class HeroModel {
     return m;
   }
 
+  private xray = false;
+  /**
+   * Revealed enemy (motion sensor, spotter drone, sniper mark, drone link…): the red outline hull is
+   * drawn without a depth test, after the level and before the body — where the enemy is in view the
+   * body covers it (thin outline), where a wall hides him the whole red silhouette shows through.
+   */
+  setXray(on: boolean): void {
+    if (on === this.xray) return;
+    this.xray = on;
+    this.outlineMat.depthTest = !on;
+    this.outlineMat.depthWrite = !on;
+    this.outlineMat.uniforms.uGain.value = on ? 1.25 : 2.0;
+    for (const o of this.outlines) o.renderOrder = on ? 1 : 0;
+    for (const m of this.meshes) m.renderOrder = on ? 2 : 0;
+  }
+
   setHighlight(kind: 'none' | 'enemy' | 'ally'): void {
     this.highlight = kind;
     const col = kind === 'enemy' ? 0xff3b3b : kind === 'ally' ? 0x4dd8ff : 0x000000;
@@ -976,7 +992,7 @@ function crackMaterial(): THREE.Material {
 
 function makeOutlineMat(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uThickness: { value: 0.022 }, uColor: { value: new THREE.Color(0xff3b3b) } },
+    uniforms: { uThickness: { value: 0.022 }, uColor: { value: new THREE.Color(0xff3b3b) }, uGain: { value: 2.0 } },
     vertexShader: /* glsl */ `
       uniform float uThickness;
       #include <common>
@@ -990,7 +1006,7 @@ function makeOutlineMat(): THREE.ShaderMaterial {
         transformed += normalize(objectNormal) * uThickness;
         #include <project_vertex>
       }`,
-    fragmentShader: `uniform vec3 uColor; void main(){ gl_FragColor = vec4(uColor * 2.0, 1.0); }`,
+    fragmentShader: `uniform vec3 uColor; uniform float uGain; void main(){ gl_FragColor = vec4(uColor * uGain, 1.0); }`,
     side: THREE.BackSide,
     toneMapped: false,
   });

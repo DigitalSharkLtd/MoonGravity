@@ -1202,6 +1202,7 @@ export class Game {
       m.root.quaternion.copy(f.renderQuat);
       const lv = _v.copy(f.body.vel).applyQuaternion(_q.copy(f.renderQuat).invert());
       m.setCloak(f.cloakT > 0 ? (me && this.areEnemies(me, f) && f.revealedT <= 0 ? 1 : 0.6) : 0);
+      m.setXray(!!me && f.alive && f.revealedT > 0 && this.areEnemies(me, f)); // seen through walls while revealed
       m.update(
         dt,
         {

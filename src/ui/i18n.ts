@@ -1261,7 +1261,7 @@ const ABILITY_COPY: Record<AbilityId, { name: Bi; desc: Bi }> = {
   },
   spotdrone: {
     name: { ru: 'Дрон-наводчик', en: 'Spotter Drone' },
-    desc: { ru: 'Дрон зависает над зоной и отмечает врагов для всей команды.', en: 'A drone that hovers over the area and marks enemies for your whole team.' },
+    desc: { ru: 'Разведдрон летит вперёд и 10 с висит над зоной: враги в радиусе 18 м видны всей команде сквозь стены (красный силуэт) и красными точками на миникарте.', en: 'A scout drone flies ahead and hovers for 10 s: enemies within 18 m show through walls (red silhouette) and as red dots on the minimap for your whole team.' },
   },
   kamikaze: {
     name: { ru: 'Рой камикадзе', en: 'Kamikaze Swarm' },
@@ -1273,7 +1273,7 @@ const ABILITY_COPY: Record<AbilityId, { name: Bi; desc: Bi }> = {
   },
   sensor: {
     name: { ru: 'Датчик движения', en: 'Motion Sensor' },
-    desc: { ru: 'Метательный датчик подсвечивает всех врагов в радиусе 20 м для всей команды.', en: 'A thrown sensor that reveals every enemy within 20 m to your whole team.' },
+    desc: { ru: 'Метательный датчик: все враги в радиусе 20 м видны вашей команде сквозь стены и на миникарте, пока датчик работает.', en: 'A thrown sensor: every enemy within 20 m shows through walls and on the minimap for your team while it lasts.' },
   },
   overcharge: {
     name: { ru: 'Сверхзаряд', en: 'Overcharge' },
@@ -1626,7 +1626,7 @@ const PASSIVE_COPY: Record<PassiveId, { name: Bi; desc: Bi }> = {
   },
   spotter: {
     name: { ru: 'Метка снайпера', en: 'Spotter' },
-    desc: { ru: 'Попадание в голову подсвечивает цель для всей команды на 3 с.', en: 'Headshots reveal the target to your whole team for 3 s.' },
+    desc: { ru: 'Попадание в голову выдаёт цель всей команде на 3 с: её видно сквозь стены и на миникарте.', en: 'A headshot reveals the target to your whole team for 3 s: seen through walls and on the minimap.' },
   },
   backstab: {
     name: { ru: 'Удар в спину', en: 'Backstab' },

@@ -407,14 +407,27 @@ async function playOnline(mode: ModeId, hero: HeroId, join?: string, anyMode = f
     // auto-start on site entry has no user gesture, so the browser refuses the mouse lock until a click
     if (anyMode)
       setTimeout(() => {
-        if (state === 'match' && !input.locked && !menu.visible) menu.toast(settings.language === 'ru' ? 'Кликните по экрану, чтобы играть' : 'Click the screen to play', 'good');
+        if (state === 'match' && !input.locked && !menu.visible) menu.toast(settings.language === 'ru' ? 'Кликните по экрану, чтобы начать' : 'Click to play', 'good');
       }, 600);
   } catch (e) {
     console.warn('online play failed', e);
     if (cancel.v) return;
     const msg = (e as Error).message;
     const ru = settings.language === 'ru';
-    menu.toast(msg === 'lobby_unavailable' ? (ru ? 'Сервер лобби недоступен — игра с ботами' : 'Lobby unavailable — playing with bots') : (ru ? 'Не удалось подключиться: ' : 'Connection failed: ') + msg, 'bad');
+    // human-readable reason instead of the raw error code; the match continues offline with bots
+    const why: Record<string, [string, string]> = {
+      lobby_unavailable: ['сервер лобби недоступен', 'the lobby server is unavailable'],
+      timeout: ['хост не ответил', 'the host did not respond'],
+      rtc_failed: ['нет прямого соединения с хостом (сеть или NAT)', 'no direct connection to the host (network or NAT)'],
+      rtc_unsupported: ['браузер не поддерживает WebRTC', 'this browser does not support WebRTC'],
+      full: ['комната заполнена', 'the room is full'],
+      not_found: ['комната больше не существует', 'the room no longer exists'],
+      closed: ['хост закрыл комнату', 'the host closed the room'],
+      host_left: ['хост вышел из игры', 'the host left the game'],
+      version_mismatch: ['у хоста другая версия игры', 'the host runs a different game version'],
+    };
+    const reason = why[msg]?.[ru ? 0 : 1] ?? msg;
+    menu.toast(ru ? `Не удалось подключиться: ${reason}. Играем с ботами.` : `Couldn't connect: ${reason}. Playing with bots.`, 'bad');
     net = null;
     await startMatch(mode, hero, 'offline', null);
   }

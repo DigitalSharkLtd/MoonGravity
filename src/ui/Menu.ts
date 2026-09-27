@@ -535,7 +535,7 @@ export class MenuSystem {
       'mg-logo',
       emblem,
       div('mg-logo-text', span('mg-logo-w1', 'MOON'), span('mg-logo-w2', 'GRAVITY')),
-      div('mg-logo-sub', span('', getLang() === 'ru' ? 'Война за палладий' : 'The palladium war'), span('mg-logo-pd', 'Pd · 46')),
+      div('mg-logo-sub', span('', getLang() === 'ru' ? 'Война за палладий' : 'The Palladium War'), span('mg-logo-pd', 'Pd · 46')),
     );
 
     this.installItem = () => {

@@ -122,7 +122,7 @@ export class Abilities {
         const fwd = b.forward(new THREE.Vector3());
         fwd.y = 0;
         fwd.normalize();
-        if (g.isAuthority) g.summons.spawn('decoy', f, b.pos.clone(), { yaw: Math.atan2(-fwd.x, -fwd.z), vel: fwd.multiplyScalar(2.2) });
+        if (g.isAuthority) this.authority(f, id);
         if (f.flags.has('decoyCloak')) f.cloakT = Math.max(f.cloakT, 2);
         g.sound('respawn', f, 0.6);
         return true;
@@ -276,70 +276,31 @@ export class Abilities {
         g.sound('streak', f, 1);
         return true;
       }
-      case 'servitor': {
-        if (g.isAuthority) g.spawnServitor(f);
+      case 'servitor':
+        if (g.isAuthority) this.authority(f, id);
         g.sound('respawn', null, 0.8, b.pos);
         return true;
-      }
-      case 'turret': {
-        const p = this.groundAhead(f, 2.4);
-        if (!p) return false;
-        if (g.isAuthority) {
-          for (const old of g.summons.byOwner(f.id, 'turret')) g.summons.destroy(old, true);
-          g.summons.spawn('turret', f, p, { yaw: this.yawOf(f), flags: f.flags.has('toughServitors') ? ['longTurret'] : [] });
-        }
+      case 'turret':
+      case 'barricade':
+        if (!this.groundAhead(f, id === 'turret' ? 2.4 : 2.6)) return false;
+        if (g.isAuthority) this.authority(f, id);
         return true;
-      }
-      case 'barricade': {
-        const p = this.groundAhead(f, 2.6);
-        if (!p) return false;
-        if (g.isAuthority) {
-          const mine = g.summons.byOwner(f.id, 'barricade');
-          if (mine.length >= 2) g.summons.destroy(mine[0], true);
-          g.summons.spawn('barricade', f, p, { yaw: this.yawOf(f) });
-        }
-        return true;
-      }
       case 'forcefield': {
         const pos = b.center(new THREE.Vector3());
         g.effects.shockwave(pos, UP, 12, 0x6fd0ff, 0.8, 0.9);
         g.sound('shield_up', null, 1, pos);
-        if (g.isAuthority) {
-          for (const o of g.fighters) {
-            if (!o.alive || g.areEnemies(f, o) || o.body.pos.distanceTo(pos) > 12) continue;
-            o.shieldHp = 260;
-            o.shieldT = 7;
-          }
-        }
+        if (g.isAuthority) this.authority(f, id);
         return true;
       }
-      case 'huntdrone': {
-        if (g.isAuthority) {
-          for (const old of g.summons.byOwner(f.id, 'huntdrone')) g.summons.destroy(old, true);
-          g.summons.spawn('huntdrone', f, eye.clone().addScaledVector(b.up, 0.8), { flags: [...f.flags], vel: look.clone().multiplyScalar(6) });
-        }
+      case 'huntdrone':
+      case 'spotdrone':
+        if (g.isAuthority) this.authority(f, id);
         g.sound('jet_start', f, 0.7);
         return true;
-      }
-      case 'spotdrone': {
-        if (g.isAuthority) g.summons.spawn('spotdrone', f, eye.clone().addScaledVector(b.up, 0.5), { flags: [...f.flags], vel: look.clone().multiplyScalar(16) });
-        g.sound('jet_start', f, 0.7);
-        return true;
-      }
-      case 'kamikaze': {
-        const n = f.flags.has('bigSwarm') ? 8 : 5;
-        if (g.isAuthority) {
-          const enemies = g.fighters.filter((o) => o.alive && g.areEnemies(f, o)).sort((a, c) => a.body.pos.distanceTo(b.pos) - c.body.pos.distanceTo(b.pos));
-          for (let i = 0; i < n; i++) {
-            const a = (i / n) * Math.PI * 2;
-            const v = new THREE.Vector3(Math.cos(a) * 5, 4, Math.sin(a) * 5).addScaledVector(look, 6);
-            const target = enemies.length ? enemies[i % enemies.length].id : -1;
-            g.summons.spawn('kamikaze', f, eye.clone().addScaledVector(b.up, 0.6), { vel: v, target });
-          }
-        }
+      case 'kamikaze':
+        if (g.isAuthority) this.authority(f, id);
         g.sound('pod_incoming', null, 0.8, b.pos);
         return true;
-      }
     }
     return false;
   }
@@ -419,6 +380,72 @@ export class Abilities {
         const pos = b.pos.clone();
         const heavy = f.flags.has('heavySlam');
         g.combat.explode({ pos, radius: heavy ? 7.5 : 6.5, damage: 55, owner: f.id, team: f.team, source: 'slam', kind: 'slam', knock: heavy ? 17 : 10, emp: 2, selfDamage: 0, suitMul: 1.2 });
+      }
+    }
+  }
+
+  /**
+   * Authority-side part of an ability (devices, summons, team buffs). Runs on the host for its
+   * own fighters and bots, and again for client-owned fighters when their 'ab' event arrives.
+   */
+  authority(f: Fighter, id: string): void {
+    const g = this.game;
+    const b = f.body;
+    const eye = f.eye(new THREE.Vector3());
+    const look = b.viewDir(new THREE.Vector3());
+    switch (id) {
+      case 'decoy': {
+        const fwd = b.forward(new THREE.Vector3());
+        fwd.y = 0;
+        if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, -1);
+        fwd.normalize();
+        g.summons.spawn('decoy', f, b.pos.clone(), { yaw: Math.atan2(-fwd.x, -fwd.z), vel: fwd.multiplyScalar(2.2) });
+        break;
+      }
+      case 'servitor':
+        g.spawnServitor(f);
+        break;
+      case 'turret': {
+        const p = this.groundAhead(f, 2.4);
+        if (!p) break;
+        for (const old of g.summons.byOwner(f.id, 'turret')) g.summons.destroy(old, true);
+        g.summons.spawn('turret', f, p, { yaw: this.yawOf(f), flags: f.flags.has('toughServitors') ? ['longTurret'] : [] });
+        break;
+      }
+      case 'barricade': {
+        const p = this.groundAhead(f, 2.6);
+        if (!p) break;
+        const mine = g.summons.byOwner(f.id, 'barricade');
+        if (mine.length >= 2) g.summons.destroy(mine[0], true);
+        g.summons.spawn('barricade', f, p, { yaw: this.yawOf(f) });
+        break;
+      }
+      case 'forcefield': {
+        const pos = b.center(new THREE.Vector3());
+        for (const o of g.fighters) {
+          if (!o.alive || g.areEnemies(f, o) || o.body.pos.distanceTo(pos) > 12) continue;
+          o.shieldHp = 260;
+          o.shieldT = 7;
+        }
+        break;
+      }
+      case 'huntdrone':
+        for (const old of g.summons.byOwner(f.id, 'huntdrone')) g.summons.destroy(old, true);
+        g.summons.spawn('huntdrone', f, eye.clone().addScaledVector(b.up, 0.8), { flags: [...f.flags], vel: look.clone().multiplyScalar(6) });
+        break;
+      case 'spotdrone':
+        g.summons.spawn('spotdrone', f, eye.clone().addScaledVector(b.up, 0.5), { flags: [...f.flags], vel: look.clone().multiplyScalar(16) });
+        break;
+      case 'kamikaze': {
+        const n = f.flags.has('bigSwarm') ? 8 : 5;
+        const enemies = g.fighters.filter((o) => o.alive && g.areEnemies(f, o)).sort((a, c) => a.body.pos.distanceTo(b.pos) - c.body.pos.distanceTo(b.pos));
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2;
+          const v = new THREE.Vector3(Math.cos(a) * 5, 4, Math.sin(a) * 5).addScaledVector(look, 6);
+          const target = enemies.length ? enemies[i % enemies.length].id : -1;
+          g.summons.spawn('kamikaze', f, eye.clone().addScaledVector(b.up, 0.6), { vel: v, target });
+        }
+        break;
       }
     }
   }
@@ -617,6 +644,26 @@ export class Abilities {
         break;
       case 'deflect':
         f.deflectT = 1.8;
+        break;
+      case 'grapple':
+        if (pos) {
+          f.rope = pos.clone();
+          f.ropeT = 4;
+          g.sound('grapple_fire', null, 0.9, f.body.pos);
+        }
+        break;
+      case 'grappleEnd':
+        f.rope = null;
+        break;
+      case 'servitor':
+      case 'turret':
+      case 'barricade':
+      case 'huntdrone':
+      case 'spotdrone':
+        g.sound('deploy', null, 0.7, f.body.pos);
+        break;
+      case 'kamikaze':
+        g.sound('pod_incoming', null, 0.8, f.body.pos);
         break;
       case 'moonblade':
         f.moonbladeT = 6;

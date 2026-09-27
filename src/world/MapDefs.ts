@@ -103,14 +103,14 @@ export const MAPS: Record<MapId, MapDef> = {
     ],
     mine: { x: 0, z: 0, r: 40, floorR: 12, depth: 16, benches: 4, ramps: [20 * D, 150 * D, 270 * D] },
     flats: [
-      { x: 0, z: 60, w: 14, d: 12, soft: 5 }, // N processing plant
-      { x: 53, z: 53, w: 20, d: 20, soft: 5, rot: 0 }, // NE spaceport
-      { x: 62, z: 0, w: 11, d: 11, soft: 5, offset: 1.5 }, // E relay on high ground
-      { x: 53, z: -53, w: 19, d: 19, soft: 5 }, // SE lab
-      { x: 0, z: -61, w: 14, d: 11, soft: 5 }, // S silos / power
-      { x: -53, z: -53, w: 20, d: 20, soft: 5 }, // SW hab dome
-      { x: -62, z: 0, w: 11, d: 12, soft: 5 }, // W depot
-      { x: -53, z: 53, w: 18, d: 18, soft: 5 }, // NW power station
+      { x: 0, z: 60, w: 17, d: 13.5, soft: 5 }, // N processing plant
+      { x: 53, z: 53, w: 21, d: 21, soft: 5 }, // NE spaceport
+      { x: 62, z: 0, w: 8.5, d: 12.5, soft: 5, offset: 1.5 }, // E relay on high ground
+      { x: 52, z: -53, w: 21.5, d: 14.5, soft: 5 }, // SE lab
+      { x: 0, z: -61, w: 17, d: 13.5, soft: 5 }, // S silos
+      { x: -53, z: -53, w: 21, d: 21, soft: 5 }, // SW hab dome
+      { x: -62, z: 0, w: 10, d: 12, soft: 5 }, // W depot
+      { x: -53, z: 53, w: 19, d: 19, soft: 5 }, // NW power station
     ],
     sun: { azimuth: 120 * D, elevation: 21 * D },
     earth: { azimuth: 330 * D, elevation: 40 * D, size: 1.1 },
@@ -140,8 +140,10 @@ export const MAPS: Record<MapId, MapDef> = {
       { x: 46, z: 0, w: 13.5, d: 17, soft: 6 }, // C silo complex
       { x: 0, z: 53, w: 27, d: 14, soft: 6 }, // north spaceport
       { x: 0, z: -53, w: 27, d: 14, soft: 6 }, // south lab
-      { x: -62, z: 52, w: 8, d: 8, soft: 5 },
-      { x: 62, z: -52, w: 8, d: 8, soft: 5 },
+      { x: -62, z: 52, w: 11, d: 11, soft: 5 }, // relays / depots
+      { x: 62, z: -52, w: 11, d: 11, soft: 5 },
+      { x: -62, z: -52, w: 12, d: 12, soft: 5 },
+      { x: 62, z: 52, w: 12, d: 12, soft: 5 },
     ],
     sun: { azimuth: 70 * D, elevation: 14 * D },
     earth: { azimuth: 250 * D, elevation: 36 * D, size: 1.25 },

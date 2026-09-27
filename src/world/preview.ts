@@ -138,6 +138,21 @@ interface WalkStep {
 }
 const w = window as unknown as Record<string, unknown>;
 w.__world = world;
+w.__pipe = pipe;
+w.__camera = camera;
+/** build another map in the same session (material/shader re-setup check); returns stats + render errors */
+w.__switchMap = async (id: MapId) => {
+  const t = performance.now();
+  const w2 = new World(id, { quality, shadows: 'high', renderer: pipe.renderer, camera });
+  const ms = performance.now() - t;
+  pipe.setScene(w2.scene, camera);
+  camera.position.set(0, 60, 40);
+  camera.lookAt(0, 0, 0);
+  w2.update(0.016, camera.position, camera.position, 1);
+  pipe.render(0.016);
+  const gl = pipe.renderer.getContext();
+  return { ms: Math.round(ms), glError: gl.getError(), programs: (pipe.renderer.info.programs ?? []).length };
+};
 w.__stats = stats;
 w.__frames = () => frames;
 w.__cam = (x: number, y: number, z: number, yaw: number, pitch: number) => placeCam(x, y, z, yaw, pitch);
@@ -167,6 +182,18 @@ w.__walk = (start: { x: number; y?: number; z: number; yaw: number }, steps: Wal
 w.__goto = (a: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }, maxSteps = 2400, o: { mag?: boolean; sprint?: boolean } = {}) => {
   const body = new Body(world.physics);
   body.magOn = o.mag ?? true;
+  // test endpoints can land inside a wall next to a stair foot: slide them toward the other end
+  const free = (p: { x: number; y: number; z: number }, q: { x: number; y: number; z: number }) => {
+    const v = new THREE.Vector3(p.x, p.y, p.z);
+    const d = new THREE.Vector3(q.x - p.x, 0, q.z - p.z).normalize();
+    for (let i = 0; i < 6; i++) {
+      if (!world.physics.pointBlocked(v.clone().add(new THREE.Vector3(0, 0.9, 0)), 0.45)) break;
+      v.addScaledVector(d, 0.25);
+    }
+    return { x: v.x, y: v.y, z: v.z };
+  };
+  a = free(a, to);
+  to = free(to, a);
   const yaw0 = Math.atan2(-(to.x - a.x), -(to.z - a.z));
   body.reset(new THREE.Vector3(a.x, a.y, a.z), yaw0);
   const mi: MoveInput = { ...emptyInput(), forward: 1, sprint: !!o.sprint };
@@ -196,4 +223,17 @@ w.__near = (x: number, y: number, z: number, r = 1) => {
   });
   return out;
 };
+/** pairs of FFA / same-team spawns that can see each other (eye to eye) */
+w.__spawnLOS = () => {
+  const sp = world.layout.spawns;
+  const vis: [number, number][] = [];
+  const up = new THREE.Vector3(0, 1.6, 0);
+  for (let i = 0; i < sp.length; i++)
+    for (let j = i + 1; j < sp.length; j++) {
+      if (sp[i].team !== sp[j].team || sp[i].team !== -1) continue;
+      if (world.physics.visible(sp[i].pos.clone().add(up), sp[j].pos.clone().add(up))) vis.push([i, j]);
+    }
+  return { n: sp.length, visiblePairs: vis.length, pairs: vis.slice(0, 30), pos: sp.map((s) => [+s.pos.x.toFixed(1), +s.pos.y.toFixed(1), +s.pos.z.toFixed(1)]) };
+};
+w.__skipped = () => (world.structures.userData.skipped as number) ?? 0;
 w.__ready = true;

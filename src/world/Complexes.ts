@@ -91,6 +91,7 @@ export interface BlockSpec {
   holes?: Record<number, [number, number, number, number][]>;
   roofMat?: Mat;
   cap?: Mat;
+  clutter?: boolean;
 }
 
 /** Multi-storey rectangular building with floors, stairwells, lit interiors, parapet roof. */
@@ -124,7 +125,9 @@ export function block(k: Kit, s: BlockSpec): void {
   k.slab(ix0 - 0.02, iz0 - 0.02, ix1 + 0.02, iz1 + 0.02, 0.2, 0.5, floorMat, { seg: 2 });
   for (let i = 0; i < s.floors; i++) {
     const y = i * fh;
-    k.room(s.x0, s.z0, s.x1, s.z1, y, fh, t, wall, s.open[i] ?? {}, {
+    const openI: Partial<Record<Side, Opening[]>> = {};
+    for (const [sd, list] of Object.entries(s.open[i] ?? {}) as [Side, Opening[]][]) openI[sd] = list.map((op) => (op.accent || op.team !== undefined || !s.ribs ? op : { ...op, accent: s.ribs }));
+    k.room(s.x0, s.z0, s.x1, s.z1, y, fh, t, wall, openI, {
       cap: s.cap ?? 'trim',
       lining: s.lining === null ? undefined : { side: 1, mat: s.lining ?? 'wood' },
       ribs: s.ribs ? { side: 1, every: 4, mat: s.ribs } : undefined,
@@ -160,15 +163,44 @@ export function block(k: Kit, s: BlockSpec): void {
   const roofY = s.floors * fh;
   const roofHoles = stairs.filter((st) => st.from === s.floors - 1).map(holeOf);
   k.slab(ix0 - 0.02, iz0 - 0.02, ix1 + 0.02, iz1 + 0.02, roofY, SLAB, s.roofMat ?? 'hullGray', { holes: roofHoles, under: s.ceil ?? 'cream', edge: 'trim' });
-  for (const st of stairs) k.stairs(st.x0, st.z0, st.x1, st.z1, st.from * fh + (st.from === 0 ? 0.2 : 0), (st.from + 1) * fh, st.width ?? 1.6, { rails: st.rails ?? 'r', mat: 'darkPanel' });
+  for (const st of stairs) k.stairs(st.x0, st.z0, st.x1, st.z1, st.from * fh + (st.from === 0 ? 0.2 : 0), (st.from + 1) * fh, st.width ?? 1.6, { rails: st.rails ?? 'r', mat: 'trim', style: 'open', tread: floorMat === 'grid' ? 'grid' : 'wood', railMat: 'brass' });
+  // rooftop clutter: HVAC units, vents, antenna (skipped over stairwells / walkways)
+  if (s.clutter !== false) {
+    const rng = new Rng(Math.floor(Math.abs(k.f.x * 13.7 + k.f.z * 7.1)) + s.floors);
+    const W = s.x1 - s.x0;
+    const D = s.z1 - s.z0;
+    const n = Math.max(1, Math.floor((W * D) / 40));
+    for (let i = 0; i < n; i++) {
+      const w = rng.range(1.0, 2.2);
+      const d = rng.range(0.8, 1.6);
+      const x = rng.range(s.x0 + 1 + w / 2, s.x1 - 1 - w / 2);
+      const z = rng.range(s.z0 + 1 + d / 2, s.z1 - 1 - d / 2);
+      if (k.blocked(x, z, w + 0.6, d + 0.6, roofY)) continue;
+      const kind = rng.next();
+      if (kind < 0.45) {
+        k.box(x, roofY + 0.45, z, w, 0.9, d, 'hullGray', { bevel: 0.06 });
+        k.cyl(x + w * 0.2, roofY + 0.95, z, Math.min(w, d) * 0.3, 0.12, 'dark', { seg: 12, collide: false });
+        k.box(x - w * 0.25, roofY + 0.5, z + d / 2 + 0.01, w * 0.4, 0.5, 0.03, 'vent', { collide: false, bevel: 0 });
+      } else if (kind < 0.75) {
+        k.box(x, roofY + 0.3, z, w, 0.6, d, 'vent', { bevel: 0.05 });
+        k.box(x, roofY + 0.65, z, w + 0.1, 0.1, d + 0.1, 'trim', { collide: false, bevel: 0.02 });
+      } else {
+        k.box(x, roofY + 0.15, z, 1.0, 0.3, 1.0, 'darkPanel', { bevel: 0.04 });
+        k.beam([x, roofY + 0.3, z], [x, roofY + 3.2, z], 0.08, 'steel', { round: true });
+        k.beam([x, roofY + 2.4, z], [x + 0.7, roofY + 2.4, z], 0.05, 'steel', { round: true });
+        k.beacon(x, roofY + 3.3, z, 0xff3a2a, 1.9, rng.next());
+      }
+    }
+  }
   const ph = s.parapet ?? 1.1;
+  const capMat: Mat = s.ribs ?? 'trim';
   if (ph > 0) {
     const pt = 0.3;
-    k.wall(s.x0, s.z0 + pt / 2, s.x1, s.z0 + pt / 2, roofY, ph, pt, wall, [], { cap: 'trim' });
-    k.wall(s.x0, s.z1 - pt / 2, s.x1, s.z1 - pt / 2, roofY, ph, pt, wall, [], { cap: 'trim' });
-    k.wall(s.x0 + pt / 2, s.z0 + pt, s.x0 + pt / 2, s.z1 - pt, roofY, ph, pt, wall, [], { cap: 'trim' });
-    k.wall(s.x1 - pt / 2, s.z0 + pt, s.x1 - pt / 2, s.z1 - pt, roofY, ph, pt, wall, [], { cap: 'trim' });
-  }
+    k.wall(s.x0, s.z0 + pt / 2, s.x1, s.z0 + pt / 2, roofY, ph, pt, wall, [], { cap: capMat });
+    k.wall(s.x0, s.z1 - pt / 2, s.x1, s.z1 - pt / 2, roofY, ph, pt, wall, [], { cap: capMat });
+    k.wall(s.x0 + pt / 2, s.z0 + pt, s.x0 + pt / 2, s.z1 - pt, roofY, ph, pt, wall, [], { cap: capMat });
+    k.wall(s.x1 - pt / 2, s.z0 + pt, s.x1 - pt / 2, s.z1 - pt, roofY, ph, pt, wall, [], { cap: capMat });
+  } else k.span(s.x0 - 0.05, roofY - 0.05, s.z0 - 0.05, s.x1 + 0.05, roofY + 0.18, s.z1 + 0.05, capMat, { collide: false, bevel: 0.06, faces: 1 | 2 | 4 | 16 | 32 });
 }
 
 /** A short exterior stair + landing to reach a roof or balcony (with rails). */
@@ -413,7 +445,7 @@ export function fortress(k: Kit, team: number, m: Markers): void {
   k.lampPost(4, 15.5, 0, 0.12);
 
   m.pickups.push({ pos: k.p(-4, 0.3, -8.5), kind: 'o2', elevated: false }, { pos: k.p(-4, 0.3, 8.5), kind: 'o2', elevated: false });
-  m.pickups.push({ pos: k.p(8, H + 0.3, 31.5), kind: 'ammo', elevated: true }, { pos: k.p(-3, 0.3, 21.5), kind: 'grenade', elevated: false });
+  m.pickups.push({ pos: k.p(8, H + 0.3, 31.5), kind: 'ammo', elevated: true }, { pos: k.p(1.5, 0.3, 16.5), kind: 'grenade', elevated: false });
   m.perches.push(k.p(9.5, H + 0.2, 31.5), k.p(9.5, H + 0.2, -31.5));
   m.keep.push({ x: k.f.x, z: k.f.z, r: 44 });
 }
@@ -459,11 +491,11 @@ function commandBunker(k: Kit, team: number, m: Markers): void {
   k.radome(-2.5, -4.5, cap, 2.4, team);
   // war room: screen wall, consoles in rows, holo table
   k.box(x0 + 0.45, 2.6, 0, 0.1, 2.8, 9, 'dark', { collide: false, bevel: 0.02 });
-  k.panel(x0 + 0.52, 2.6, 0, 8.4, 2.4, 1, 0, 0, 'screen');
+  k.panel(x0 + 0.52, 2.6, 0, 8.4, 2.4, 1, 0, 0, 'screenMap');
   k.panel(x0 + 0.54, 3.9, 0, 3, 0.5, 1, 0, 0, team === 0 ? 'label0' : 'label1');
   for (const z of [-3.2, 0, 3.2]) k.console(-3.4, z, -Math.PI / 2, 0.2);
   k.cyl(0.8, 0.65, 0, 1.2, 0.9, 'darkPanel', { seg: 16 });
-  k.cyl(0.8, 1.15, 0, 1.05, 0.08, team === 0 ? 'team0Glow' : 'team1Glow', { seg: 16, collide: false });
+  k.cyl(0.8, 1.13, 0, 1.05, 0.04, 'screenMap', { seg: 16, collide: false, bevel: 0 });
   k.light(0.8, 2.2, 0, tl, 3, 6, { bounds: k.aabb(x0, 0, -7, x1, hh, 7) });
   k.roomLights(x0 + 0.5, -6.5, x1 - 0.2, 6.5, 0.2, hh, WARM, 5);
   k.locker(4.2, -6.4, 0, 4, 0.2, tm);
@@ -507,7 +539,7 @@ export function outpost(k: Kit, team: number, m: Markers): void {
     lining: 'wood',
     team,
     open: [
-      { e: ops(12, [{ u: 6, w: 2.6, h: DOOR_H, team }], { every: 3.3 }), n: ops(10, [5], { every: 0 }), s: ops(10, [5], { every: 0 }), w: ops(12, [], { every: 3.3 }) },
+      { e: ops(12, [{ u: 6, w: 2.6, h: DOOR_H, team }], { every: 3.3 }), n: ops(10, [], { every: 3, glass: 'warm' }), s: ops(10, [5], { every: 0 }), w: ops(12, [], { every: 3.3 }) },
       { e: ops(12, [{ u: 6, w: DOOR_W, h: DOOR_H }], { every: 3.3, glass: 'none', sill: 1.0, h: 1.3 }), n: ops(10, [], { every: 3, glass: 'tint' }), s: ops(10, [], { every: 3, glass: 'none', sill: 1.1, h: 1.2 }), w: ops(12, [], { every: 3.3 }) },
     ],
     stairs: [
@@ -529,10 +561,10 @@ export function outpost(k: Kit, team: number, m: Markers): void {
   // redan: V-shaped rampart pointing at the enemy, entrance at the tip
   rampart(k, 1.5, -13, 9.5, -2.6, { h: 3, w: 2.4, outer: -1, team, lamps: false });
   rampart(k, 9.5, 2.6, 1.5, 13, { h: 3, w: 2.4, outer: -1, team, lamps: false });
-  k.stairs(0.5, -8.6, 4.8, -5.2, 0.12, 3.1, 1.5, { rails: 'l', mat: 'concrete', foot: true });
-  k.stairs(0.5, 8.6, 4.8, 5.2, 0.12, 3.1, 1.5, { rails: 'r', mat: 'concrete', foot: true });
-  k.turret(6, -8.8, -0.9, 3, team);
-  k.turret(6, 8.8, 0.9, 3, team);
+  k.stairs(0.05, -4.94, 4.15, -8.11, 0.12, 3.1, 1.5, { rails: 'both', mat: 'concrete', foot: true });
+  k.stairs(0.05, 4.94, 4.15, 8.11, 0.12, 3.1, 1.5, { rails: 'both', mat: 'concrete', foot: true });
+  k.turret(7.9, -4.7, -0.9, 3, team);
+  k.turret(7.9, 4.7, 0.9, 3, team);
   // small hardened shelter for the rover (opening toward the centre)
   const hk = k.at(-6.5, 12, Math.PI / 2, 0.12);
   hk.vault(7.6, 9, 4.2, { team, door: false });
@@ -675,8 +707,8 @@ export function processingPlant(k: Kit, m: Markers, o: { conveyorTo?: THREE.Vect
   k.barrels(2.2, -9.8, 3, 0.12);
   k.lampPost(1.5, -15, 0, 0.12);
   k.lampPost(11.5, -8.2, Math.PI, 0.12);
-  m.cp = k.p(4.5, 0.12, -4.5);
-  m.pickups.push({ pos: k.p(-1.5, 0.3, -5), kind: 'o2', elevated: false });
+  m.cp = k.p(0.8, 0.12, -9.6);
+  m.pickups.push({ pos: k.p(-2.6, 0.3, -5.5), kind: 'o2', elevated: false });
   m.keep.push({ x: k.f.x, z: k.f.z, r: 20 });
 }
 
@@ -719,6 +751,7 @@ export function siloComplex(k: Kit, m: Markers, o: { seed?: number } = {}): void
       { x0: 4.0, z0: -2.9, x1: -2.5, z1: -2.9, from: 1, width: 1.4, rails: 'r' },
     ],
     parapet: 0,
+    clutter: false,
   });
   lk.railing(-5.9, -4.4, 5.9, -4.4, 2 * FLOOR);
   lk.railing(5.9, -4.4, 5.9, 4.4, 2 * FLOOR);
@@ -837,9 +870,9 @@ export function spaceport(k: Kit, m: Markers, o: { seed?: number; compact?: bool
     }
   }
   // berm arcs (gaps toward the terminal)
-  bermArc(k, 18.4, -1, 11, 2.8, -0.4, 1.9);
+  bermArc(k, 18.4, -1, 11, 2.8, -0.55, 1.05);
   if (!o.compact) {
-    bermArc(k, -18, -6.5, 9.5, 2.4, Math.PI * 0.55, Math.PI * 1.35);
+    bermArc(k, -18, -6.5, 9.5, 2.4, Math.PI * 0.85, Math.PI * 1.4);
     // --- control tower with glazed cab ---
     const tw = k.at(-19, 6, 0, 0);
     block(tw, {
@@ -942,8 +975,8 @@ function shuttle(k: Kit, m: Markers, seed: number): void {
   k.b.add('hull', nose, k.p(0, cy, L / 2), k.q(0, qAxis(1, 0, 0, Math.PI / 2)), V(1, 1.4, 1));
   k.panel(0, cy + 1.6, L / 2 + 2.3, 2.4, 0.9, 0, 0.55, 1, 'glassBlue');
   for (const s of [-1, 1]) {
-    k.cylH(s * 1.2, cy - 0.3, -L / 2 - 0.9, 1.0, 1.8, 'z', 'darkPanel', { seg: 16 });
-    k.cylH(s * 1.2, cy - 0.3, -L / 2 - 1.85, 0.8, 0.2, 'z', 'screenAmber', { seg: 16, collide: false });
+    k.cylH(s * 2.5, cy - 0.2, -L / 2 - 0.7, 0.95, 1.8, 'z', 'darkPanel', { seg: 16 });
+    k.cylH(s * 2.5, cy - 0.2, -L / 2 - 1.65, 0.75, 0.2, 'z', 'screenAmber', { seg: 16, collide: false });
     k.box(s * 5.2, cy - 0.9, -2.5, 5.6, 0.35, 5.5, 'hull', { bevel: 0.15, tilt: qAxis(0, 0, 1, s * 0.12) });
     k.box(s * 7.6, cy - 0.55, -3.8, 0.9, 0.4, 3.0, 'orange', { bevel: 0.1, collide: false });
     for (const lz of [-5, 5]) k.beam([s * 1.8, cy - 2, lz], [s * 2.6, 0.1, lz], 0.28, 'steel', { round: true, collide: true });
@@ -993,7 +1026,7 @@ export function ringBalcony(k: Kit, r0: number, r1: number, y: number, skip: num
 // 2-storey lab wing linked at 4 m, telescope drum with a catwalk ring, radome. Local +z faces the action.
 // Footprint x -26..26, z -13..13.
 
-export function lab(k: Kit, m: Markers, o: { seed?: number } = {}): void {
+export function lab(k: Kit, m: Markers, o: { seed?: number; compact?: boolean } = {}): void {
   const seed = o.seed ?? 0;
   const sh = k.at(-9, 0, 0, 0);
   const R = 11.5;
@@ -1003,16 +1036,27 @@ export function lab(k: Kit, m: Markers, o: { seed?: number } = {}): void {
     { az: -Math.PI / 2, w: 3.8, h: 3.4 },
     { az: 0, w: 3.2, h: 2.9, y0: FLOOR },
   ]);
+  // shell dressing: warm portholes, brass band, oculus cap with antenna (inhabited, printed shell)
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2 + 0.11;
+    if ([Math.PI / 2, Math.PI, -Math.PI / 2 + Math.PI * 2, 0].some((oa) => Math.abs(((a - oa + Math.PI * 3) % (Math.PI * 2)) - Math.PI) < 0.35)) continue;
+    const y = 2.6;
+    const rr = Math.sqrt(R * R - (y / 1.05) ** 2) + 0.02;
+    const n = V(Math.cos(a), 0.22, Math.sin(a)).normalize();
+    sh.b.panel(sh.p(Math.cos(a) * rr, y, Math.sin(a) * rr), 0.9, 0.9, n, 'glassWarm');
+    sh.b.torus(sh.p(Math.cos(a) * (rr + 0.05), y, Math.sin(a) * (rr + 0.05)), 0.55, 0.1, sh.q(-a + Math.PI / 2).multiply(qAxis(1, 0, 0, -0.22)), 'brass');
+  }
+  sh.b.torus(sh.p(0, 0.9, 0), R + 0.12, 0.22, qAxis(1, 0, 0, Math.PI / 2), 'orange');
+  sh.cyl(0, R * 1.05 - 0.3, 0, 2.2, 0.8, 'brass', { seg: 20, collide: false });
+  sh.cyl(0, R * 1.05 + 0.2, 0, 1.6, 0.4, 'glassBlue', { seg: 20, collide: false, bevel: 0 });
+  sh.beam([0, R * 1.05 + 0.3, 0], [0, R * 1.05 + 3.5, 0], 0.1, 'steel', { round: true });
+  sh.beacon(0, R * 1.05 + 3.6, 0, 0xff3a2a, 1.6, 0.2);
   // floor (octagon from two boxes) + warm interior
   sh.box(0, -0.05, 0, 18.8, 0.5, 8, 'tile', { bevel: 0.03, seg: 2 });
   sh.box(0, -0.05, 0, 8, 0.5, 18.8, 'tile', { bevel: 0.03, seg: 2 });
   sh.box(0, -0.06, 0, 13.4, 0.48, 13.4, 'tile', { rot: Math.PI / 4, bevel: 0.03, seg: 2 });
-  ringBalcony(sh, 4.4, 8.6, FLOOR, [5], 'wood', 'brass');
-  // tangent stair (SW chord) up to the ring
-  const a0 = (5 * Math.PI) / 4;
-  const c = [Math.cos(a0) * 6.4, Math.sin(a0) * 6.4];
-  const tg = [-Math.sin(a0), Math.cos(a0)];
-  sh.stairs(c[0] - tg[0] * 3.2, c[1] - tg[1] * 3.2, c[0] + tg[0] * 3.2, c[1] + tg[1] * 3.2, 0.2, FLOOR, 1.6, { rails: 'l', style: 'open' });
+  // gallery ring at 4 m (reached through the lab wing and the upper east opening)
+  ringBalcony(sh, 4.4, 8.6, FLOOR, [], 'wood', 'brass');
   // walkway through the upper east opening → bridge to the lab wing
   sh.span(8.2, FLOOR - 0.35, -1.4, 14.2, FLOOR, 1.4, 'grid', { bevel: 0.03 });
   sh.railing(10.6, -1.35, 14.1, -1.35, FLOOR);
@@ -1068,25 +1112,27 @@ export function lab(k: Kit, m: Markers, o: { seed?: number } = {}): void {
   m.perches.push(wk.p(-3, 2 * FLOOR + 0.2, 3));
 
   // --- telescope drum with catwalk ring (joins the wing's upper east door) ---
-  const tk = k.at(22.6, -1, 0, 0);
-  tk.cyl(0, FLOOR / 2, 0, 3.2, FLOOR, 'cream', { seg: 24 });
-  tk.cyl(0, FLOOR + 0.35, 0, 3.3, 0.7, 'orange', { seg: 24 });
-  tk.b.dome(tk.p(0, FLOOR + 0.7, 0), 3.2, 'hullGray', { seg: 24 });
-  tk.box(0, FLOOR + 2.6, 0.9, 1.1, 3.8, 3.4, 'dark', { tilt: qAxis(1, 0, 0, 0.5), collide: false, bevel: 0.05 });
-  tk.beam([0, FLOOR + 1.6, 0], [0, FLOOR + 4.6, 2.2], 0.9, 'paintWhite', { round: true });
+  if (!o.compact) {
+  const tk = k.at(23.4, -1, 0, 0);
+  tk.cyl(0, FLOOR / 2, 0, 2.6, FLOOR, 'cream', { seg: 24 });
+  tk.cyl(0, FLOOR + 0.35, 0, 2.7, 0.7, 'orange', { seg: 24 });
+  tk.b.dome(tk.p(0, FLOOR + 0.7, 0), 2.6, 'hullGray', { seg: 24 });
+  tk.box(0, FLOOR + 2.2, 0.8, 0.9, 3.2, 2.8, 'dark', { tilt: qAxis(1, 0, 0, 0.5), collide: false, bevel: 0.05 });
+  tk.beam([0, FLOOR + 1.4, 0], [0, FLOOR + 4.0, 1.9], 0.75, 'paintWhite', { round: true });
   for (let i = 0; i < 8; i++) {
     const a = (i * Math.PI) / 4;
-    const kk = tk.at(Math.cos(a) * 3.95, Math.sin(a) * 3.95, -a, 0);
-    kk.box(0, FLOOR - 0.12, 0, 1.6, 0.24, 3.4, 'grid', { bevel: 0.03 });
-    if (i !== 4 && i !== 7) tk.at(Math.cos(a) * 4.7, Math.sin(a) * 4.7, -a, 0).railing(0, -1.55, 0, 1.55, FLOOR, { mat: 'orange' });
+    const kk = tk.at(Math.cos(a) * 3.35, Math.sin(a) * 3.35, -a, 0);
+    kk.box(0, FLOOR - 0.12, 0, 1.6, 0.24, 2.95, 'grid', { bevel: 0.03 });
+    if (i !== 4 && i !== 6) tk.at(Math.cos(a) * 4.1, Math.sin(a) * 4.1, -a, 0).railing(0, -1.3, 0, 1.3, FLOOR, { mat: 'orange' });
   }
-  k.stairs(25.3, -9.6, 25.3, -3.6, 0.12, FLOOR, 1.5, { rails: 'r', style: 'open', foot: true });
+  k.stairs(23.4, -11.3, 23.4, -5.2, 0.12, FLOOR, 1.5, { rails: 'both', style: 'open', foot: true });
   tk.light(0, FLOOR + 1, 4.5, WARM, 3, 6);
   m.perches.push(tk.p(0, FLOOR + 0.1, 4));
+  } else wk.balcony(7, -1, Math.PI / 2, 4, 2.2, FLOOR, { rail: 'orange' });
 
   // --- grounds: pad, masts, rover, cover ---
-  k.span(-26, -0.3, -13, 26, 0.1, 13, 'padDark', { metal: false, bevel: 0.03, seg: 5 });
-  for (const z of [-9, 9]) solarMast(k.at(-24.5, z, 0, 0), 8);
+  k.span(o.compact ? -21 : -26, -0.3, -13, o.compact ? 20 : 26, 0.1, 13, 'padDark', { metal: false, bevel: 0.03, seg: 5 });
+  for (const z of [-9, 9]) solarMast(k.at(o.compact ? -20 : -24.5, z, 0, 0), 8);
   const rv = k.at(1.5, 9.5, 0.4, 0.1);
   rv.box(0, 1.0, 0, 2.2, 1.0, 3.8, 'orange', { bevel: 0.2, metal: false });
   rv.box(0, 1.8, -0.4, 1.9, 0.7, 2.0, 'hull', { bevel: 0.15, metal: false });
@@ -1099,7 +1145,7 @@ export function lab(k: Kit, m: Markers, o: { seed?: number } = {}): void {
   k.lampPost(-1, 8.5, 0, 0.1);
   k.lampPost(3, -8.5, 0, 0.1);
   m.keep.push({ x: k.f.x, z: k.f.z, r: 27 });
-  m.pickups.push({ pos: k.p(-9, 0.4, 2), kind: 'o2', elevated: false });
+  m.pickups.push({ pos: k.p(-9, 0.4, 6.3), kind: 'o2', elevated: false });
 }
 
 /** stylised hydroponic tree (trunk + faceted canopy) */
@@ -1189,7 +1235,7 @@ export function habTown(k: Kit, m: Markers, o: { seed?: number; R?: number } = {
     k.column(Math.cos(a) * 2.85, Math.sin(a) * 2.85, 0.2, FLOOR - 0.36, 0.45, 'cream', { cap: 'brass' });
   }
   // radial stair from the plaza up to the ring (between a hab and an airlock)
-  const sa = habAz[0] + Math.PI / 6;
+  const sa = habAz[0] + 0.83;
   k.stairs(Math.cos(sa) * 10.1, Math.sin(sa) * 10.1, Math.cos(sa) * 3.75, Math.sin(sa) * 3.75, 0.15, FLOOR, 1.5, { rails: 'both', style: 'open' });
   const ob = k.at(0, 0, Math.PI / 4, 0);
   ob.box(0, 0.6, 0, 2.6, 1.2, 2.6, 'brass', { bevel: 0.15, metal: false });
@@ -1200,9 +1246,10 @@ export function habTown(k: Kit, m: Markers, o: { seed?: number; R?: number } = {
   k.light(0, 12, 0, 0x9ff6ff, 5, 10);
   // garden: trees + planters around the plaza, lamps
   for (let i = 0; i < 6; i++) {
-    const a = habAz[i % 3] + (i < 3 ? 0.78 : -0.78);
-    tree(k, Math.cos(a) * 9.2, Math.sin(a) * 9.2, 0.15, 1.1, seed + 10 + i);
-    k.planter(Math.cos(a) * 6.4, Math.sin(a) * 6.4, -a + Math.PI / 2, 2.0, 0.15, seed + 20 + i, 'teal');
+    const a = habAz[i % 3] + (i < 3 ? 0.6 : -0.6);
+    tree(k, Math.cos(a) * 12, Math.sin(a) * 12, 0.15, 1.1, seed + 10 + i);
+    const ap = doorAz[i % 3] + (i < 3 ? -0.45 : 0.45);
+    k.planter(Math.cos(ap) * 5.4, Math.sin(ap) * 5.4, -ap + Math.PI / 2, 2.0, 0.15, seed + 20 + i, 'teal');
   }
   for (let i = 0; i < 3; i++) {
     const a = doorAz[i];
@@ -1246,7 +1293,7 @@ export function relay(k: Kit, m: Markers, o: { team?: number | null; seed?: numb
     ribs: 'orange',
     lining: 'darkPanel',
     floorMat: 'grid',
-    open: [{ n: ops(7.2, [2.2], { every: 2.4, glass: 'warm' }), e: ops(5.2, [2.6], { every: 0 }), w: ops(5.2, [], { every: 2.4, glass: 'none', sill: 1.1, h: 1.0 }), s: ops(7.2, [], { every: 2.4, glass: 'warm' }) }],
+    open: [{ n: ops(7.2, [2.2], { every: 2.4, glass: 'warm' }), e: ops(5.2, [], { every: 2.4, glass: 'warm' }), w: ops(5.2, [], { every: 2.4, glass: 'none', sill: 1.1, h: 1.0 }), s: ops(7.2, [5.2], { every: 0 }) }],
     light: WARM2,
     parapet: 0.45,
   });
@@ -1332,7 +1379,7 @@ export function powerStation(k: Kit, m: Markers, o: { seed?: number } = {}): voi
   // reactor behind berms (gaps for access)
   const rk = k.at(4, 4, 0, 0);
   for (let i = 0; i < 6; i++) {
-    const a0 = (i / 6) * Math.PI * 2 + 0.3;
+    const a0 = (i / 6) * Math.PI * 2 - 0.19;
     const a1 = a0 + Math.PI / 3 - 0.45;
     rk.berm(Math.cos(a0) * 9, Math.sin(a0) * 9, Math.cos(a1) * 9, Math.sin(a1) * 9, 2.6, 1.0, 6.2);
   }
@@ -1355,7 +1402,7 @@ export function powerStation(k: Kit, m: Markers, o: { seed?: number } = {}): voi
   // solar mast field
   for (let i = 0; i < 6; i++) solarMast(k.at(-12 + (i % 3) * 4.2, -12 + Math.floor(i / 3) * 5.5, 0, 0), 9 + (i % 2));
   // control hut
-  const hk = k.at(-10, 8, 0, 0);
+  const hk = k.at(-12, 11, 0, 0);
   block(hk, {
     x0: -3.5,
     z0: -3,
@@ -1369,9 +1416,9 @@ export function powerStation(k: Kit, m: Markers, o: { seed?: number } = {}): voi
   });
   hk.console(-1.5, 2.3, Math.PI, 0.2);
   hk.console(1.4, 2.3, Math.PI, 0.2, 'screenAmber');
-  k.stairs(-15.4, 3.2, -15.4, 9.8, 0.1, FLOOR, 1.4, { rails: 'l', style: 'open', foot: true });
-  k.span(-16.1, FLOOR - 0.3, 9.8, -13.4, FLOOR, 11.4, 'grid', { bevel: 0.03 });
-  k.pipe([[-6.4, 0.3, 8], [-3, 0.3, 8], [-3, 0.3, 4], [0.5, 0.3, 4]], 0.15, 'brass');
+  k.stairs(-17, 5.8, -17, 12.4, 0.1, FLOOR, 1.4, { rails: 'l', style: 'open', foot: true });
+  k.span(-17.7, FLOOR - 0.3, 12.4, -15.3, FLOOR, 14.2, 'grid', { bevel: 0.03 });
+  k.pipe([[-8.4, 0.3, 12.5], [-4, 0.3, 12.5], [-4, 0.3, 4], [0.5, 0.3, 4]], 0.15, 'brass');
   k.lampPost(-6, 3.5, 0, 0);
   k.crate(12, -10, 0.3, 1.2);
   k.hesco(9, -13, 14, -13, 1.3);
@@ -1379,4 +1426,47 @@ export function powerStation(k: Kit, m: Markers, o: { seed?: number } = {}): voi
   m.pickups.push({ pos: k.p(-6, 0.3, -2), kind: 'grenade', elevated: false });
   m.keep.push({ x: k.f.x, z: k.f.z, r: 20 });
   void o.seed;
+}
+
+// ---------------------------------------------------------------------------
+/** Small cover cluster for open ground (crates, container, hesco, jersey, barrels, lamp, generator). */
+export function coverCluster(k: Kit, seed: number, o: { lamp?: boolean } = {}): void {
+  const rng = new Rng(seed * 7919 + 17);
+  const kind = seed % 4;
+  if (kind === 0) {
+    P.containers(k.b, k.at(0, 0, rng.range(-0.3, 0.3)).f, [[0, 0, 0, 0], [0, 2.5, 0, 0.08]], seed);
+    k.crate(2.4, 3.6, 0.3, 1.2);
+    k.crate(3.2, 2.6, 0.8, 0.9);
+  } else if (kind === 1) {
+    k.hesco(-3, 0, 3, 0, 1.3);
+    k.sandbags(-3.4, 1.6, -1.2, 3.2, 1.0);
+    k.barrels(2.2, 1.8, 3, 0, 'orange');
+  } else if (kind === 2) {
+    k.jersey(0, 0, 0.2, 3.2);
+    k.jersey(1.2, 2.4, -0.4, 3.2);
+    const g = k.at(-2.6, 1.2, 0.3, 0);
+    g.box(0, 0.7, 0, 2.2, 1.4, 1.3, 'yellow', { bevel: 0.12, metal: false });
+    g.box(0, 1.5, 0, 1.6, 0.2, 1.0, 'dark', { collide: false, bevel: 0.03 });
+    g.cyl(0.6, 1.8, 0, 0.18, 0.6, 'steel', { collide: false, seg: 8 });
+    g.box(-1.12, 0.8, 0, 0.04, 0.6, 0.8, 'vent', { collide: false, bevel: 0 });
+  } else {
+    P.containers(k.b, k.at(0, 0, 1.2 + rng.range(-0.2, 0.2)).f, [[0, 0, 0, 0]], seed);
+    k.hesco(2, -3.5, 5, -3.5, 1.3);
+    k.crate(-2.6, 2.8, 0.5, 1.3);
+  }
+  if (o.lamp !== false) k.lampPost(rng.range(-3, 3), -3.2, rng.range(0, 6), 0, 4.2);
+}
+
+/** Mining haul truck (cover in the pit): chunky yellow dump body, cab, big wheels. */
+export function haulTruck(k: Kit, x: number, z: number, rot: number, y = 0, load = true): void {
+  const t = k.at(x, z, rot, y);
+  t.box(0, 1.5, 0, 3.0, 1.0, 6.2, 'darkPanel', { bevel: 0.12, metal: false });
+  t.box(0, 2.6, -0.8, 3.2, 1.4, 4.4, 'yellow', { bevel: 0.18, metal: false, tilt: qAxis(1, 0, 0, -0.06) });
+  if (load) t.box(0, 3.35, -0.8, 2.6, 0.5, 3.8, 'oreRock', { collide: false, bevel: 0.25 });
+  t.box(0.5, 2.7, 2.3, 1.8, 1.4, 1.4, 'hull', { bevel: 0.12, metal: false });
+  t.panel(0.5, 2.95, 3.01, 1.5, 0.6, 0, 0, 1, 'glassBlue');
+  t.box(0, 3.5, 2.3, 3.2, 0.12, 1.8, 'yellow', { collide: false, bevel: 0.04 });
+  for (const sx of [-1.55, 1.55]) for (const sz of [-2.1, 2.1]) t.cylH(sx, 0.95, sz, 0.95, 0.7, 'x', 'rubber', { seg: 14, collide: false });
+  t.box(0.5, 3.1, 3.02, 0.3, 0.2, 0.05, 'lamp', { collide: false, bevel: 0 });
+  t.light(0.5, 2.2, 4.5, WARM, 3, 7, { dir: [0, -0.3, 1], cone: 0.3 });
 }

@@ -70,166 +70,225 @@ function addSpawn(b: StructureBuilder, info: LayoutInfo, x: number, z: number, t
   info.spawns.push({ pos: V(x, b.ground(x, z), z), yaw: yawToward(x, z, tx, tz), team });
 }
 
-// ---------------------------------------------------------------------------
-// 2v2 — "Shaft-7": two outposts facing each other over a compact open-pit mine.
-function buildDuel(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: number, floorY: number): void {
-  P.drillRig(b, F(b, 0, 0));
-  info.controlPoints.push({ id: 'B', pos: V(0, floorY, 0), radius: 9 });
-  // bridge across the pit (walk under it upside-down)
-  P.bridge(b, 14, -33, 14, 33, top + 0.6);
-  P.pylon(b, 14, -17, top - 2.5);
-  P.pylon(b, 14, 17, top - 2.5);
-  P.conveyor(b, -6, floorY + 1.2, 8, -8, top + 4.5, 37);
-  P.pylon(b, -8, 40, top + 4);
-  info.perches.push(V(14, top + 0.7, 0));
-
-  for (const team of [0, 1]) {
-    const s = team === 0 ? -1 : 1;
-    const face = team === 0 ? 0 : Math.PI; // local +X toward the center
-    P.domeHab(b, F(b, s * 67, -9, face), 6.5, team);
-    P.habModule(b, F(b, s * 60, 13, Math.PI / 2), 10, team);
-    P.commTower(b, F(b, s * 71, 15), 12, team);
-    info.perches.push(V(s * 71, b.ground(s * 71, 15) + 12.5, 15));
-    P.barricade(b, F(b, s * 47, -9, Math.PI / 2), 5, team);
-    P.barricade(b, F(b, s * 47, 7, Math.PI / 2), 5, team);
-    P.barricade(b, F(b, s * 53, 0, Math.PI / 2 + 0.2), 3, team);
-    P.containers(b, F(b, s * 55, -21, 0), [
-      [0, 0, 0, 0],
-      [2.5, 0, 0, 0],
-      [1.25, 0, 1, 0.1],
-    ], 11 + team);
-    P.solarArray(b, F(b, s * 75, -24, Math.PI / 2), 3);
-    P.o2Station(b, F(b, s * 60, -2, s < 0 ? Math.PI / 2 : -Math.PI / 2), team);
-    P.spawnGate(b, F(b, s * 73, 3, s < 0 ? -Math.PI / 2 : Math.PI / 2), team);
-    P.lightPole(b, F(b, s * 50, 20, face));
-    P.lightPole(b, F(b, s * 50, -20, face));
-    info.pickups.push({ pos: V(s * 60, 0, 1.5), kind: 'o2' });
-    info.pickups.push({ pos: V(s * 55, 0, -14), kind: 'ammo' });
-    info.baseCenters.push(V(s * 62, b.ground(s * 62, 0), 0));
-    info.keepOut.push({ x: s * 62, z: 0, r: 26 });
-    for (let i = 0; i < 4; i++) addSpawn(b, info, s * (68 + (i % 2) * 5), -2 + i * 3, team, 0, 0);
+/**
+ * Move a marker to the nearest free spot (no overlap with colliders at body height, with a floor
+ * under it) within ~2.4 m; returns the original if nothing better is found.
+ */
+const _dn = new THREE.Vector3(0, -1, 0);
+function nudgeFree(b: StructureBuilder, p: THREE.Vector3): THREE.Vector3 {
+  const offs: [number, number][] = [[0, 0]];
+  for (const r of [0.8, 1.6, 2.4]) for (let i = 0; i < 8; i++) offs.push([Math.cos((i / 8) * Math.PI * 2) * r, Math.sin((i / 8) * Math.PI * 2) * r]);
+  for (const [dx, dz] of offs) {
+    const q = new THREE.Vector3(p.x + dx, p.y, p.z + dz);
+    if (b.world.pointBlocked(q.clone().setY(q.y + 0.9), 0.4)) continue;
+    const hit = b.world.raycast(q.clone().setY(q.y + 0.4), _dn, 1.4, { forMove: true });
+    const gy = b.ground(q.x, q.z);
+    if (!hit && q.y - gy > 1.0) continue; // would float
+    return q;
   }
-  // neutral cover around the rim
-  P.wreck(b, F(b, -24, 41, 0.8));
-  P.containers(b, F(b, 30, 41, 0.3), [
-    [0, 0, 0, 0],
-    [-3, 1, 0, 1.4],
-  ], 5);
-  P.containers(b, F(b, -32, -40, -0.4), [[0, 0, 0, 0]], 6);
-  P.bunker(b, F(b, 26, -42, 0.2), null);
-  P.crate(b, F(b, -36, 22));
-  P.crate(b, F(b, 36, -22));
-  P.crate(b, F(b, 37, -20.5), 0.9);
-  P.lightPole(b, F(b, 0, 36));
-  P.lightPole(b, F(b, 0, -36));
-  info.pickups.push({ pos: V(-24, 0, 36), kind: 'armor' }, { pos: V(28, 0, -37), kind: 'grenade' }, { pos: V(0, 0, 8.5), kind: 'ammo' });
-  info.podZones.push(V(0, 0, 0), V(-30, 0, 42), V(30, 0, -42));
-  info.keepOut.push({ x: 14, z: 0, r: 4 }, { x: -24, z: 41, r: 6 }, { x: 30, z: 41, r: 7 }, { x: -32, z: -40, r: 6 }, { x: 26, z: -42, r: 6 });
+  return p;
 }
 
-// ---------------------------------------------------------------------------
-// FFA — "Palladium Quarry": a huge terraced pit, crossing bridges, industry on every side.
-function buildQuarry(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: number, floorY: number): void {
-  P.drillRig(b, F(b, 0, 0, 0.4));
-  // crossing bridges
-  P.bridge(b, -22, -60, -22, 60, top + 0.8);
-  P.bridge(b, -62, 24, 62, 24, top + 0.8);
-  for (const z of [-38, -12, 44]) P.pylon(b, -22, z, top - 2.1);
-  for (const x of [-44, 20, 44]) P.pylon(b, x, 24, top - 2.1);
-  info.perches.push(V(-22, top + 0.9, 24), V(-22, top + 0.9, -30), V(30, top + 0.9, 24));
-  // north: refinery + conveyor out of the pit
-  P.refinery(b, F(b, 0, 80, 0), null);
-  P.conveyor(b, 8, floorY + 1.4, 10, 8, top + 6.5, 70);
-  // south: silos
-  P.silos(b, F(b, 0, -80, Math.PI), null);
-  P.conveyor(b, -8, floorY + 1.4, -10, -8, top + 6, -70);
-  // east: hangar opening toward the pit
-  P.hangar(b, F(b, 80, 20, -Math.PI / 2), 14, 18, 8, null);
-  // west: habitat cluster
-  P.domeHab(b, F(b, -80, -14, 0), 7, null);
-  P.habModule(b, F(b, -78, 6, 0), 9, null);
-  // corners
-  P.commTower(b, F(b, 62, -64), 14, null);
-  P.commTower(b, F(b, -64, 66), 14, null);
-  info.perches.push(V(62, b.ground(62, -64) + 14.5, -64), V(-64, b.ground(-64, 66) + 14.5, 66));
-  P.radar(b, F(b, -68, -66), null);
-  P.landingPad(b, F(b, 70, 68), 6, null);
-  P.tankFarm(b, F(b, 40, -78, 0.2), null);
-  P.solarArray(b, F(b, -40, 82, 0), 4);
-  P.wreck(b, F(b, 86, -30, 2));
-  P.containers(b, F(b, -40, -80, 0.5), [
-    [0, 0, 0, 0],
-    [2.6, 0, 0, 0],
-    [0, 3, 1, 1.2],
-  ], 21);
-  P.containers(b, F(b, 58, 40, -0.7), [
-    [0, 0, 0, 0],
-    [0, 3.2, 0, 0.3],
-  ], 22);
-  P.bunker(b, F(b, -86, 42, 1.2), null);
-  P.bunker(b, F(b, 36, 76, 0.1), null);
-  P.barricade(b, F(b, 0, 62, 0), 6, null);
-  P.barricade(b, F(b, 0, -62, 0), 6, null);
-  P.barricade(b, F(b, 62, 0, Math.PI / 2), 6, null);
-  P.barricade(b, F(b, -62, 0, Math.PI / 2), 6, null);
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2 + 0.26;
-    P.lightPole(b, F(b, Math.cos(a) * 64, Math.sin(a) * 64, -a));
-  }
-  P.oreCluster(b, V(9, 0, -9), 1.4, 31);
-  P.oreCluster(b, V(-12, 0, 6), 1.2, 32);
-  info.controlPoints.push({ id: 'B', pos: V(0, floorY, 0), radius: 10 });
-  // pickups
-  info.pickups.push(
-    { pos: V(0, 0, 70), kind: 'o2' },
-    { pos: V(0, 0, -70), kind: 'o2' },
-    { pos: V(74, 0, 20), kind: 'armor' },
-    { pos: V(-70, 0, -2), kind: 'o2' },
-    { pos: V(0, 0, 10), kind: 'ammo' },
-    { pos: V(50, 0, -50), kind: 'grenade' },
-    { pos: V(-50, 0, 50), kind: 'grenade' },
-    { pos: V(-60, 0, -50), kind: 'ammo' },
-    { pos: V(60, 0, 55), kind: 'ammo' },
-  );
-  info.podZones.push(V(0, 0, 0), V(0, 0, 30), V(30, 0, -20), V(-40, 0, 72), V(72, 0, -40));
-  // FFA spawns ringed around the pit
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2 + 0.1;
-    const r = i % 2 ? 72 : 86;
-    const x = Math.cos(a) * r;
-    const z = Math.sin(a) * r;
-    addSpawn(b, info, x, z, -1, 0, 0);
-  }
-  info.keepOut.push(
-    { x: 0, z: 80, r: 16 },
-    { x: 0, z: -80, r: 12 },
-    { x: 80, z: 20, r: 16 },
-    { x: -80, z: -8, r: 16 },
-    { x: 62, z: -64, r: 5 },
-    { x: -64, z: 66, r: 5 },
-    { x: 70, z: 68, r: 8 },
-    { x: 40, z: -78, r: 8 },
-    { x: -40, z: 82, r: 9 },
-    { x: -40, z: -80, r: 8 },
-    { x: 58, z: 40, r: 8 },
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 4v4 — "Tycho Front": two star-forts, A processing plant, B drill rig in the mine, C silo complex,
-// spaceport flank (north) and science lab flank (south).
-function pushMarkers(info: LayoutInfo, m: C.Markers, team: number | null, o: { spawns?: boolean; cp?: 'A' | 'B' | 'C'; cpR?: number } = {}): void {
-  for (const p of m.pickups) info.pickups.push({ pos: p.pos.clone(), kind: p.kind, elevated: p.elevated || undefined });
-  for (const p of m.perches) info.perches.push(p.clone());
+function pushMarkers(info: LayoutInfo, m: C.Markers, team: number | null, o: { spawns?: boolean; cp?: 'A' | 'B' | 'C'; cpR?: number; pickups?: boolean; b?: StructureBuilder } = {}): void {
+  const fix = (p: THREE.Vector3) => (o.b ? nudgeFree(o.b, p) : p.clone());
+  if (o.pickups !== false) for (const p of m.pickups) info.pickups.push({ pos: fix(p.pos), kind: p.kind, elevated: p.elevated || undefined });
+  for (const p of m.perches) info.perches.push(fix(p));
   for (const k of m.keep) info.keepOut.push(k);
-  if (o.spawns) for (const sp of m.spawns) info.spawns.push({ pos: sp.pos.clone(), yaw: sp.yaw, team: team ?? -1 });
+  if (o.spawns) for (const sp of m.spawns) info.spawns.push({ pos: fix(sp.pos), yaw: sp.yaw, team: team ?? -1 });
   if (o.cp && m.cp) info.controlPoints.push({ id: o.cp, pos: m.cp.clone(), radius: o.cpR ?? 8 });
 }
 
+/**
+ * Greedy FFA spawn selection: keeps existing (interior) spawns, then adds ground candidates on the
+ * outer ring that see the fewest already-chosen spawns (eye-to-eye raycasts), spaced ≥ 11 m apart.
+ */
+function pickSpawns(b: StructureBuilder, info: LayoutInfo, def: MapDef, total: number, rMin: number): void {
+  const eye = new THREE.Vector3(0, 1.6, 0);
+  const chosen = info.spawns.filter((s) => s.team === -1);
+  // drop interior spawns that see each other
+  for (let i = chosen.length - 1; i >= 0; i--)
+    for (let j = 0; j < i; j++)
+      if (b.world.visible(chosen[i].pos.clone().add(eye), chosen[j].pos.clone().add(eye))) {
+        info.spawns.splice(info.spawns.indexOf(chosen[i]), 1);
+        chosen.splice(i, 1);
+        break;
+      }
+  const cands: THREE.Vector3[] = [];
+  const hx = def.halfX - 4;
+  const hz = def.halfZ - 4;
+  const up06 = new THREE.Vector3(0, 0.6, 0);
+  const up14 = new THREE.Vector3(0, 1.4, 0);
+  for (let x = -hx; x <= hx; x += 4.5)
+    for (let z = -hz; z <= hz; z += 4.5) {
+      if (Math.hypot(x, z) < rMin) continue;
+      const p = new THREE.Vector3(x, b.ground(x, z) + 0.3, z);
+      if (b.world.pointBlocked(p.clone().add(up06), 0.5) || b.world.pointBlocked(p.clone().add(up14), 0.5)) continue;
+      cands.push(p);
+    }
+  // incremental scores: visibility count and nearest-spawn distance per candidate
+  const vis = new Int32Array(cands.length);
+  const near = new Float32Array(cands.length).fill(Infinity);
+  const alive = new Uint8Array(cands.length).fill(1);
+  const ce = cands.map((c) => c.clone().add(eye));
+  const account = (sp: THREE.Vector3) => {
+    const se = sp.clone().add(eye);
+    for (let i = 0; i < cands.length; i++) {
+      if (!alive[i]) continue;
+      const d = Math.hypot(cands[i].x - sp.x, cands[i].z - sp.z);
+      near[i] = Math.min(near[i], d);
+      if (d < 11) continue;
+      if (b.world.visible(ce[i], se)) vis[i]++;
+    }
+  };
+  for (const sp of chosen) account(sp.pos);
+  while (chosen.length < total) {
+    let best = -1;
+    let bestScore = Infinity;
+    for (let i = 0; i < cands.length; i++) {
+      if (!alive[i] || near[i] < 11) continue;
+      const score = vis[i] * 100 - Math.min(near[i], 40);
+      if (score < bestScore) {
+        bestScore = score;
+        best = i;
+      }
+    }
+    if (best < 0) break;
+    alive[best] = 0;
+    const c = cands[best];
+    const sp = { pos: c, yaw: yawToward(c.x, c.z, 0, 0), team: -1 };
+    info.spawns.push(sp);
+    chosen.push(sp);
+    account(c);
+  }
+}
+
+/** Kit at the terrain under (x, z) facing `rot`. */
+function K(b: StructureBuilder, x: number, z: number, rot = 0): Kit {
+  return new Kit(b, frameAt(b, x, z, rot));
+}
+
+/** Mine dressing shared by all maps: drill rig, ore, rim lights. */
+function mineCore(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: number, floorY: number, rigRot: number, cpR: number): void {
+  P.drillRig(b, F(b, def.mine.x, def.mine.z, rigRot));
+  info.controlPoints.push({ id: 'B', pos: V(def.mine.x, floorY, def.mine.z), radius: cpR });
+  const r = def.mine.r;
+  const n = Math.max(6, Math.round(r / 4.5));
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + 0.2;
+    const k = K(b, Math.cos(a) * (r + 3), Math.sin(a) * (r + 3), -a);
+    k.lampPost(0, 0, Math.PI, 0, 4.5, 0xffc98a);
+  }
+  info.podZones.push(V(def.mine.x, 0, def.mine.z));
+}
+
+// ---------------------------------------------------------------------------
+// 2v2 — "Шахта-7": two outposts facing each other over a compact open-pit mine; three lanes
+// (north relay, the mine with two bridges, south relay).
+function buildDuel(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: number, floorY: number): void {
+  mineCore(b, def, info, top, floorY, Math.PI / 4, 7);
+  for (const x of [-10, 10]) {
+    P.bridge(b, x, -24, x, 24, top + 0.6);
+    P.pylon(b, x, x < 0 ? -9 : 9, top - 1.9);
+  }
+  info.perches.push(V(-10, top + 0.7, 0), V(10, top + 0.7, 0));
+  P.oreCluster(b, V(5, 0, -5), 1.1, 31);
+  P.oreCluster(b, V(-5, 0, 5), 1.1, 32);
+  for (const team of [0, 1]) {
+    const s = team === 0 ? -1 : 1;
+    const m = C.markers();
+    C.outpost(K(b, s * 41, 0, team === 0 ? 0 : Math.PI), team, m);
+    pushMarkers(info, m, team, { b,  spawns: true });
+    info.baseCenters.push(V(s * 41, b.ground(s * 41, 0), 0));
+  }
+  // lanes: relays (point-symmetric)
+  for (const s of [-1, 1]) {
+    const m = C.markers();
+    C.relay(K(b, 0, s * 31, s > 0 ? Math.PI : 0), m, { seed: s > 0 ? 1 : 2 });
+    pushMarkers(info, m, null, { b });
+  }
+  // rim cover between lanes
+  const kk = K(b, 0, 0);
+  for (const s of [-1, 1]) {
+    P.containers(b, F(b, s * 24, s * -17, 0.5 * s), [[0, 0, 0, 0], [2.6, 0, 0, 0]], 11 + s);
+    kk.hesco(s * 26, s * 12, s * 26, s * 6, 1.3);
+    kk.sandbags(s * 20, s * 23, s * 16, s * 25.5, 1.0);
+    kk.crate(s * 30, s * -25, 0.3, 1.2);
+  }
+  for (const s of [-1, 1]) {
+    C.coverCluster(K(b, s * 21, s * 27, s > 0 ? 0 : Math.PI), 2);
+    C.coverCluster(K(b, s * -19, s * 29, s > 0 ? 0.4 : Math.PI + 0.4), 1, { lamp: false });
+    info.keepOut.push({ x: s * 21, z: s * 27, r: 6 }, { x: -s * 19, z: s * 29, r: 6 });
+  }
+  info.pickups.push({ pos: V(0, 0, 9), kind: 'ammo' }, { pos: V(-28, 0, 22), kind: 'grenade' }, { pos: V(28, 0, -22), kind: 'grenade' });
+  info.podZones.push(V(0, 0, 22), V(0, 0, -22));
+  info.keepOut.push({ x: -10, z: 0, r: 3 }, { x: 10, z: 0, r: 3 });
+}
+
+// ---------------------------------------------------------------------------
+// FFA — "Палладиевый карьер": the terraced pit with crossing bridges, ringed by complexes:
+// N processing plant, NE spaceport, E relay (high ground), SE lab, S silos, SW hab dome,
+// W depot, NW power station. Spawns spread inside/behind every complex.
+function buildQuarry(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: number, floorY: number): void {
+  mineCore(b, def, info, top, floorY, 0.4, 10);
+  P.bridge(b, -14, -45, -14, 45, top + 0.8);
+  P.bridge(b, -45, 18, 45, 18, top + 0.8);
+  for (const z of [-26, 30]) P.pylon(b, -14, z, top - 2.1);
+  for (const x of [-30, 22]) P.pylon(b, x, 18, top - 2.1);
+  info.perches.push(V(-14, top + 0.9, 18), V(-14, top + 0.9, -20), V(20, top + 0.9, 18));
+  P.oreCluster(b, V(7, 0, -7), 1.3, 33);
+  P.oreCluster(b, V(-9, 0, 5), 1.2, 34);
+  // pit life & cover: haul trucks on the floor and a bench, ore piles
+  const pk = new Kit(b, { x: 0, y: floorY, z: 0, rot: 0 });
+  C.haulTruck(pk, 9.5, 4, 0.7, 0);
+  C.haulTruck(pk, -6, -9.5, 2.3, 0, false);
+  const bench = K(b, -24, -18, 0.9);
+  C.haulTruck(bench, 0, 0, 0, 0);
+  for (const [x, z, sd] of [[-9, -2, 35], [4, 10, 36]] as const) P.oreCluster(b, V(x, 0, z), 0.9, sd);
+  const add = (m: C.Markers, spawns = true) => pushMarkers(info, m, null, { b,  spawns });
+  let m = C.markers();
+  C.processingPlant(K(b, 0, 60, Math.PI / 2), m, { conveyorTo: V(-6, floorY + 1.4, 9), seed: 3 });
+  m.spawns.push({ pos: new Kit(b, frameAt(b, 0, 60, Math.PI / 2)).p(-8, 0.5, -12), yaw: 0 });
+  add(m);
+  m = C.markers();
+  C.spaceport(K(b, 53, 53, Math.PI / 4).at(-4, 0), m, { compact: true, seed: 4 });
+  add(m);
+  m = C.markers();
+  C.relay(K(b, 62, 0, -Math.PI / 2), m, { seed: 5 });
+  add(m);
+  m = C.markers();
+  C.lab(K(b, 53, -53, 0), m, { seed: 6, compact: true });
+  add(m);
+  m = C.markers();
+  C.siloComplex(K(b, 0, -61, -Math.PI / 2), m, { seed: 7 });
+  add(m);
+  m = C.markers();
+  C.habTown(K(b, -53, -53, 0), m, { seed: 8 });
+  add(m);
+  m = C.markers();
+  C.depot(K(b, -62, 0, Math.PI / 2), m, { seed: 9 });
+  add(m);
+  m = C.markers();
+  C.powerStation(K(b, -53, 53, 0), m, { seed: 10 });
+  add(m);
+  // FFA spawns: complex interiors first, then a greedy LOS-aware pick over the outer ring
+  pickSpawns(b, info, def, 20, 44);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    const x = Math.cos(a) * 49;
+    const z = Math.sin(a) * 49;
+    C.coverCluster(K(b, x, z, -a + Math.PI / 2), 20 + i);
+    info.keepOut.push({ x, z, r: 6 });
+  }
+  info.pickups.push({ pos: V(0, 0, 13), kind: 'ammo' }, { pos: V(-38, 0, 38), kind: 'grenade' }, { pos: V(40, 0, -32), kind: 'armor' });
+  info.podZones.push(V(0, 0, 25), V(25, 0, -15), V(-30, 0, 30), V(35, 0, 35), V(-35, 0, -30));
+  info.keepOut.push({ x: -14, z: 0, r: 3 }, { x: 0, z: 18, r: 3 });
+}
+
+// ---------------------------------------------------------------------------
+// 4v4 — "Фронт Тихо": two star-forts, A processing plant, B drill rig in the mine, C silo complex,
+// spaceport flank (north) and science-lab flank (south), relays / depots between.
 function buildFront(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: number, floorY: number): void {
-  // --- B: the mine ---
-  P.drillRig(b, F(b, 0, 0, Math.PI / 4));
-  info.controlPoints.push({ id: 'B', pos: V(0, floorY, 0), radius: 9 });
+  mineCore(b, def, info, top, floorY, Math.PI / 4, 9);
   for (const x of [-13, 13]) {
     P.bridge(b, x, -34, x, 34, top + 0.8);
     P.pylon(b, x, -16, top - 2.1);
@@ -240,19 +299,47 @@ function buildFront(b: StructureBuilder, def: MapDef, info: LayoutInfo, top: num
   P.oreCluster(b, V(-6.5, 0, -6), 1.2, 42);
   // --- A / C ---
   const mA = C.markers();
-  C.processingPlant(new Kit(b, frameAt(b, -46, 0, 0)), mA, { conveyorTo: V(-6, floorY + 1.4, 7), seed: 1 });
-  pushMarkers(info, mA, null, { cp: 'A' });
+  C.processingPlant(K(b, -46, 0, 0), mA, { conveyorTo: V(-6, floorY + 1.4, 7), seed: 1 });
+  pushMarkers(info, mA, null, { b,  cp: 'A' });
   const mC = C.markers();
-  C.siloComplex(new Kit(b, frameAt(b, 46, 0, Math.PI)), mC, { seed: 2 });
-  pushMarkers(info, mC, null, { cp: 'C' });
+  C.siloComplex(K(b, 46, 0, Math.PI), mC, { seed: 2 });
+  pushMarkers(info, mC, null, { b,  cp: 'C' });
   P.conveyor(b, 6, floorY + 1.4, -7, 37, top + 5.5, 4);
+  // --- flanks ---
+  const mS = C.markers();
+  C.spaceport(K(b, 0, 53, 0), mS, { seed: 3 });
+  pushMarkers(info, mS, null, { b });
+  const mL = C.markers();
+  C.lab(K(b, 0, -53, 0), mL, { seed: 4 });
+  pushMarkers(info, mL, null, { b });
+  for (const s of [-1, 1]) {
+    const mr = C.markers();
+    C.relay(K(b, s * 62, s * 52, s < 0 ? Math.PI * 0.75 : -Math.PI * 0.25), mr, { seed: 5 + s });
+    pushMarkers(info, mr, null, { b });
+    const md = C.markers();
+    C.depot(K(b, s * 62, -s * 52, s < 0 ? Math.PI * 0.25 : -Math.PI * 0.75), md, { seed: 7 + s });
+    pushMarkers(info, md, null, { b });
+  }
   // --- bases ---
   for (const team of [0, 1]) {
     const s = team === 0 ? -1 : 1;
     const m = C.markers();
-    C.fortress(new Kit(b, frameAt(b, s * 88, 0, team === 0 ? 0 : Math.PI)), team, m);
-    pushMarkers(info, m, team, { spawns: true });
+    C.fortress(K(b, s * 88, 0, team === 0 ? 0 : Math.PI), team, m);
+    pushMarkers(info, m, team, { b,  spawns: true });
     info.baseCenters.push(V(s * 88, b.ground(s * 88, 0), 0));
   }
-  info.podZones.push(V(0, 0, 0), V(0, 0, 50), V(0, 0, -50), V(-30, 0, 30), V(30, 0, -30));
+  for (const s of [-1, 1]) {
+    for (const [x, z, r, sd] of [
+      [64, 24, 0.3, 30],
+      [64, -24, -0.3, 31],
+      [30, 38, 0.8, 32],
+      [34, -36, -0.6, 33],
+    ] as const) {
+      C.coverCluster(K(b, s * x, s * z, s > 0 ? r : r + Math.PI), sd + (s > 0 ? 10 : 0));
+      info.keepOut.push({ x: s * x, z: s * z, r: 6 });
+    }
+  }
+  info.pickups.push({ pos: V(0, 0, 10), kind: 'armor' }, { pos: V(-28, 0, 26), kind: 'grenade' }, { pos: V(28, 0, -26), kind: 'grenade' });
+  info.podZones.push(V(0, 0, 36), V(0, 0, -36), V(-30, 0, 30), V(30, 0, -30));
+  info.keepOut.push({ x: -13, z: 0, r: 3 }, { x: 13, z: 0, r: 3 });
 }

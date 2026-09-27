@@ -16,7 +16,9 @@ import { quickMatch, joinRoom, hostRoom, type HostSession, type ClientSession, t
  * damage/heal claims; they receive 20 Hz snapshots and reliable events.
  */
 
-const WIDS: WeaponId[] = ['pulse', 'rail', 'plasma', 'glauncher', 'sealer', 'twinarc', 'nuke', 'singularity', 'helios'];
+const WIDS: WeaponId[] = ['pulse', 'rail', 'plasma', 'glauncher', 'sealer', 'twinarc', 'nuke', 'singularity', 'helios', 'blade', 'riveter', 'burst'];
+/** abilities whose gameplay part (devices, summons, team buffs) runs on the host */
+const HOST_ABILITIES = new Set(['decoy', 'servitor', 'turret', 'barricade', 'forcefield', 'huntdrone', 'spotdrone', 'kamikaze']);
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
 
@@ -33,7 +35,12 @@ const F_ALIVE = 1,
   F_RELOAD = 256,
   F_BREACH = 512,
   F_INVULN = 1024,
-  F_SLOT1 = 2048;
+  F_SLOT1 = 2048,
+  F_PRONE = 4096,
+  F_SLIDE = 8192,
+  F_ROLL = 16384,
+  F_DEFLECT = 32768,
+  F_SHIELD = 65536;
 
 interface PeerInfo {
   link: PeerLink;
@@ -56,12 +63,17 @@ export class NetGame {
   private welcome: Msg | null = null;
   private pending: Msg[] = [];
   private hero: HeroId;
+  private build = '';
   private name: string;
+  private devT = 0;
   bridge: NetBridge;
   private closed = false;
+  /** debug counters (messages received per type) */
+  rx: Record<string, number> = {};
 
-  private constructor(role: 'host' | 'client', mode: ModeId, name: string, hero: HeroId) {
+  private constructor(role: 'host' | 'client', mode: ModeId, name: string, hero: HeroId, build = '') {
     this.role = role;
+    this.build = build;
     this.mode = mode;
     this.name = name;
     this.hero = hero;
@@ -84,28 +96,28 @@ export class NetGame {
   }
 
   /** Quick match / join / create. Clients resolve once the host's welcome arrives. */
-  static async connect(opts: { mode: ModeId; name: string; hero: HeroId; join?: string; onStatus?: (s: string) => void }): Promise<NetGame> {
+  static async connect(opts: { mode: ModeId; name: string; hero: HeroId; build?: string; join?: string; onStatus?: (s: string) => void }): Promise<NetGame> {
     const cap = MODES[opts.mode].capacity;
     if (opts.join === 'create') {
       const session = await hostRoom({ mode: opts.mode, name: opts.name, capacity: cap });
-      const ng = new NetGame('host', opts.mode, opts.name, opts.hero);
+      const ng = new NetGame('host', opts.mode, opts.name, opts.hero, opts.build);
       ng.bindHost(session);
       return ng;
     }
     if (opts.join) {
       opts.onStatus?.('joining');
       const session = await joinRoom(opts.join, { name: opts.name });
-      const ng = new NetGame('client', opts.mode, opts.name, opts.hero);
+      const ng = new NetGame('client', opts.mode, opts.name, opts.hero, opts.build);
       await ng.bindClient(session);
       return ng;
     }
     const res = await quickMatch({ mode: opts.mode, name: opts.name, capacity: cap, onStatus: opts.onStatus });
     if (res.role === 'host') {
-      const ng = new NetGame('host', opts.mode, opts.name, opts.hero);
+      const ng = new NetGame('host', opts.mode, opts.name, opts.hero, opts.build);
       ng.bindHost(res.session);
       return ng;
     }
-    const ng = new NetGame('client', opts.mode, opts.name, opts.hero);
+    const ng = new NetGame('client', opts.mode, opts.name, opts.hero, opts.build);
     await ng.bindClient(res.session);
     return ng;
   }
@@ -148,10 +160,11 @@ export class NetGame {
   }
 
   private fighterInfo(f: Fighter): Record<string, unknown> {
-    return { id: f.id, name: f.name, team: f.team, hero: f.hero, bot: f.isBot, owner: f.owner, alive: f.alive, p: v3(f.body.pos), yaw: 0 };
+    return { id: f.id, name: f.name, team: f.team, hero: f.hero, b: f.buildId, bot: f.isBot, owner: f.owner, alive: f.alive, p: v3(f.body.pos), yaw: 0, so: f.summonOf };
   }
 
   private onHostMessage(link: PeerLink, m: Msg): void {
+    this.rx[m.t] = (this.rx[m.t] ?? 0) + 1;
     const g = this.game;
     if (!g) {
       // host not ready yet: queue
@@ -159,7 +172,7 @@ export class NetGame {
       return;
     }
     if (m.t === 'hello') {
-      this.acceptPeer(link, String(m.name ?? link.name), (m.hero as HeroId) ?? 'condor');
+      this.acceptPeer(link, String(m.name ?? link.name), (m.hero as HeroId) ?? 'condor', String(m.b ?? ''));
       return;
     }
     const p = this.peers.get(link.peerId);
@@ -194,9 +207,15 @@ export class NetGame {
       case 'hero':
         if (!f.alive) {
           g.setHero(f, m.hero as HeroId);
-          this.broadcast({ t: 'hero', id: f.id, hero: f.hero });
+          f.applyBuild(String(m.b ?? ''));
+          this.broadcast({ t: 'hero', id: f.id, hero: f.hero, b: f.buildId });
         }
         break;
+      case 'sdmg': {
+        const sm = g.summons.list.find((q) => q.id === m.id);
+        if (sm && f.alive) g.summons.damage(sm, Math.min(300, Number(m.amt) || 0), f);
+        break;
+      }
       case 'seal':
         if (f.sealants > 0) {
           f.sealants--;
@@ -206,7 +225,7 @@ export class NetGame {
     }
   }
 
-  private acceptPeer(link: PeerLink, name: string, hero: HeroId): void {
+  private acceptPeer(link: PeerLink, name: string, hero: HeroId, build = ''): void {
     const g = this.game!;
     let team = -1;
     if (g.modeInfo.teams) {
@@ -223,6 +242,7 @@ export class NetGame {
       }
     }
     const f = g.addFighter(name.slice(0, 24), team, hero, 'remote', link.peerId);
+    f.applyBuild(build);
     f.respawnT = 0.5;
     this.peers.set(link.peerId, { link, fighterId: f.id, name });
     // everybody learns about the newcomer, the newcomer gets the full state
@@ -233,6 +253,7 @@ export class NetGame {
       you: f.id,
       mode: g.modeInfo.id,
       fighters: g.fighters.map((o) => this.fighterInfo(o)),
+      devices: g.summons.pack(),
       scores: g.match.teamScores,
       timeLeft: g.match.timeLeft,
       pod: g.match.pod ? { p: v3(g.match.pod.pos), w: g.match.pod.weapon, t: g.match.pod.t } : null,
@@ -247,15 +268,22 @@ export class NetGame {
   private hostAbilityAuthority(f: Fighter, id: string): void {
     const g = this.game!;
     const pos = f.body.center(new THREE.Vector3());
+    if (HOST_ABILITIES.has(id)) {
+      g.abilities.authority(f, id);
+      return;
+    }
     if (id === 'o2burst') {
+      const full = f.flags.has('fullSeal');
       for (const o of g.fighters) {
         if (!o.alive || g.areEnemies(f, o) || o.body.pos.distanceTo(pos) > 10) continue;
-        g.heal(o, f, 55, 40);
-        o.oxygen = Math.min(100, o.oxygen + 50);
+        g.heal(o, f, 55, full ? o.maxSuit : 40);
+        o.oxygen = Math.min(100, o.oxygen + (full ? 100 : 50));
       }
     } else if (id === 'empnova') {
+      const R = f.flags.has('wideEmp') ? 28 : 22;
+      for (const sm of g.summons.list) if (!sm.dead && sm.pos.distanceTo(pos) < R && g.summons.hostileTo(sm, f)) g.summons.damage(sm, 200, f);
       for (const o of g.fighters) {
-        if (!o.alive || !g.areEnemies(f, o) || o.body.pos.distanceTo(pos) > 22) continue;
+        if (!o.alive || !g.areEnemies(f, o) || o.body.pos.distanceTo(pos) > R) continue;
         g.applyEmp(o, 5);
         g.damage({ target: o, attacker: f, amount: 60, source: 'empnova', part: 'body', dir: null, point: null, suitMul: 1.2 });
         this.sendTo(o, { t: 'emp', s: 5 });
@@ -270,9 +298,9 @@ export class NetGame {
   private async bindClient(session: ClientSession): Promise<void> {
     this.client = session;
     const link = session.link;
-    link.send({ t: 'hello', name: this.name, hero: this.hero });
+    link.send({ t: 'hello', name: this.name, hero: this.hero, b: this.build });
     await new Promise<void>((resolve, reject) => {
-      const to = setTimeout(() => reject(new Error('timeout')), 15000);
+      const to = setTimeout(() => reject(new Error('timeout')), 30000);
       link.onMessage = (m) => {
         const msg = m as Msg;
         if (msg.t === 'welcome') {
@@ -296,6 +324,7 @@ export class NetGame {
   }
 
   private onClientMessage(m: Msg): void {
+    this.rx[m.t] = (this.rx[m.t] ?? 0) + 1;
     if (!this.game) {
       this.pending.push(m);
       return;
@@ -313,10 +342,32 @@ export class NetGame {
         break;
       case 'join': {
         if (g.fighterById(m.id as number)) break;
+        if (typeof m.so === 'number' && m.so >= 0) {
+          g.addServitorGhost(m.id as number, m.so, vec(m.p as number[]), 0, false);
+          break;
+        }
         const f = g.addFighter(String(m.name), m.team as number, m.hero as HeroId, 'remote', String(m.owner), m.id as number);
+        f.applyBuild(String(m.b ?? ''));
         f.isBot = !!m.bot;
         f.alive = !!m.alive;
         f.body.pos.copy(vec(m.p as number[]));
+        break;
+      }
+      case 'sv':
+        g.addServitorGhost(m.id as number, m.owner as number, vec(m.p as number[]), Number(m.yaw) || 0, !!m.tough);
+        break;
+      case 'sd':
+        g.summons.remoteDestroy(m.id as number, !!m.v);
+        break;
+      case 'sbm':
+        g.combat.explosionFx(vec(m.p as number[]), 3.6, 'missile');
+        break;
+      case 'sfx': {
+        const a = vec(m.a as number[]);
+        const b = vec(m.b as number[]);
+        g.effects.tracer(a, b, m.c as number, 0.05, 260);
+        g.effects.muzzle(a, b.clone().sub(a).normalize(), m.c as number, 0.5);
+        g.sound('drone_fire', null, 0.8, a);
         break;
       }
       case 'leave': {
@@ -350,6 +401,13 @@ export class NetGame {
         const v = g.fighterById(m.v as number);
         const k = m.k !== undefined && m.k !== null ? g.fighterById(m.k as number) : null;
         if (!v) break;
+        if (v.summonOf >= 0) {
+          v.alive = false;
+          const c = v.body.center(new THREE.Vector3());
+          g.effects.explosion(c, 1.4, 0xffa050, false);
+          g.sound('explosion', null, 0.6, c);
+          break;
+        }
         v.alive = false;
         v.respawnT = g.match.respawnDelay();
         if (v === g.local) {
@@ -361,7 +419,10 @@ export class NetGame {
       }
       case 'hero': {
         const f = g.fighterById(m.id as number);
-        if (f && f !== g.local) g.setHero(f, m.hero as HeroId);
+        if (f && f !== g.local) {
+          g.setHero(f, m.hero as HeroId);
+          f.applyBuild(String(m.b ?? ''));
+        }
         break;
       }
       case 'pod':
@@ -427,13 +488,20 @@ export class NetGame {
         else if (ev === 'pick') this.broadcast({ t: 'pick', ...d });
         else if (ev === 'cap') this.broadcast({ t: 'cap', ...d });
         else if (ev === 'end') this.broadcast({ t: 'end', ...d });
+        else if (ev === 'servitor') {
+          this.known.add(d.id as number);
+          this.broadcast({ t: 'sv', ...d });
+        } else if (ev === 'servitorGone') this.broadcast({ t: 'leave', ...d });
+        else if (ev === 'sdestroy') this.broadcast({ t: 'sd', ...d });
+        else if (ev === 'sboom') this.broadcast({ t: 'sbm', ...d });
+        else if (ev === 'sfx' && this.peers.size) this.host?.broadcast({ t: 'sfx', ...d }, false);
       };
       for (const f of g.fighters) this.known.add(f.id);
       // peers that said hello while we were loading
       const queued = this.pending.splice(0);
       for (const m of queued) {
         const link = (m as unknown as { _link: PeerLink })._link;
-        if (link) this.acceptPeer(link, String(m.name ?? link.name), (m.hero as HeroId) ?? 'condor');
+        if (link) this.acceptPeer(link, String(m.name ?? link.name), (m.hero as HeroId) ?? 'condor', String(m.b ?? ''));
       }
       this.host?.setPlayers(1 + this.peers.size);
     } else {
@@ -442,9 +510,12 @@ export class NetGame {
       const me = g.local!;
       // replace the auto-created local fighter with the id the host assigned
       g.removeFighter(me);
-      for (const info of w.fighters as Record<string, unknown>[]) {
+      const infos = w.fighters as Record<string, unknown>[];
+      for (const info of infos) {
+        if (typeof info.so === 'number' && info.so >= 0) continue; // servitors after their owners
         const isMe = info.id === w.you;
         const f = g.addFighter(String(info.name), info.team as number, isMe ? this.hero : (info.hero as HeroId), isMe ? 'local' : 'remote', String(info.owner), info.id as number);
+        f.applyBuild(isMe ? g.builds[this.hero] ?? '' : String(info.b ?? ''));
         f.isBot = !!info.bot;
         f.alive = !isMe && !!info.alive;
         f.respawnT = 999;
@@ -455,6 +526,8 @@ export class NetGame {
           f.model?.setFirstPerson(!g.thirdPerson);
         }
       }
+      for (const info of infos) if (typeof info.so === 'number' && info.so >= 0) g.addServitorGhost(info.id as number, info.so, vec(info.p as number[]), 0, false);
+      if (w.devices) g.summons.unpack(w.devices as number[][]);
       g.refreshHighlights();
       g.match.teamScores = w.scores as number[];
       g.match.timeLeft = w.timeLeft as number;
@@ -465,6 +538,7 @@ export class NetGame {
       g.onClientClaim = (d: DamageSpec) => this.sendClaim(d);
       g.onClientHeal = (t, hp, su) => this.client?.link.send({ t: 'heal', tg: t.id, hp, su });
       g.onClientSeal = () => this.client?.link.send({ t: 'seal' });
+      g.onClientSummonClaim = (sm, amt) => this.client?.link.send({ t: 'sdmg', id: sm.id, amt: r2(amt) });
       const queued = this.pending.splice(0);
       for (const m of queued) this.onClientMessage(m);
     }
@@ -474,10 +548,11 @@ export class NetGame {
     this.client?.link.send({ t: 'dmg', tg: d.target.id, amt: r2(d.amount), src: d.source, part: d.part, d: d.dir ? v3(d.dir) : undefined, pt: d.point ? v3(d.point) : undefined, sm: d.suitMul, sil: d.silent ? 1 : 0 }, !d.silent);
   }
 
-  heroChanged(hero: HeroId): void {
+  heroChanged(hero: HeroId, build = ''): void {
     this.hero = hero;
-    if (this.role === 'client') this.client?.link.send({ t: 'hero', hero });
-    else if (this.game?.local) this.broadcast({ t: 'hero', id: this.game.local.id, hero });
+    this.build = build;
+    if (this.role === 'client') this.client?.link.send({ t: 'hero', hero, b: build });
+    else if (this.game?.local) this.broadcast({ t: 'hero', id: this.game.local.id, hero, b: build });
   }
 
   private emit(m: Msg, reliable: boolean, f: Fighter | null): void {
@@ -539,6 +614,10 @@ export class NetGame {
     f.body.grounded = !!(flags & F_GROUND);
     f.cloakT = flags & F_CLOAK ? Math.max(f.cloakT, 0.3) : f.cloakT;
     if (flags & F_FIRE) f.firingVisual = 0.15;
+    f.body.stance = flags & F_ROLL ? 'roll' : flags & F_SLIDE ? 'slide' : flags & F_PRONE ? 'prone' : f.body.crouching ? 'crouch' : 'stand';
+    f.deflectT = flags & F_DEFLECT ? Math.max(f.deflectT, 0.15) : 0;
+    if (!(flags & F_SHIELD)) f.shieldHp = 0;
+    else if (f.shieldHp <= 0) f.shieldHp = 100;
     const wid = WIDS[d[12]];
     if (wid && f.activeWeapon.id !== wid) {
       if (wid === f.weapon.id) f.slot = 0;
@@ -570,6 +649,7 @@ export class NetGame {
       f.breached = !!(flags & F_BREACH);
       f.suffocating = f.oxygen <= 0 && f.alive;
       f.invulnT = flags & F_INVULN ? 0.2 : 0;
+      f.shieldHp = d[19] ?? 0;
       if (f === g.local) {
         f.ultCharge = Math.max(f.ultCharge, d[16]);
         if (!(flags & F_ALIVE) && f.alive) {
@@ -579,6 +659,7 @@ export class NetGame {
         f.sealants = d[17];
       }
     }
+    if (m.d) g.summons.unpack(m.d as number[][]);
     const mm = m.m as number[];
     g.match.teamScores[0] = mm[0];
     g.match.teamScores[1] = mm[1];
@@ -604,11 +685,12 @@ export class NetGame {
           const flags = flagsOf(f);
           const q = f.control === 'remote' ? f.renderQuat : b.quat;
           const p = f.control === 'remote' ? f.renderPos : b.pos;
-          return [f.id, r2(p.x), r2(p.y), r2(p.z), r3(q.x), r3(q.y), r3(q.z), r3(q.w), r3(b.pitch), r2(b.vel.x), r2(b.vel.y), r2(b.vel.z), flags, Math.round(f.health), Math.round(f.suit), Math.round(f.oxygen), Math.round(f.ultCharge), f.sealants, WIDS.indexOf(f.activeWeapon.id)];
+          return [f.id, r2(p.x), r2(p.y), r2(p.z), r3(q.x), r3(q.y), r3(q.z), r3(q.w), r3(b.pitch), r2(b.vel.x), r2(b.vel.y), r2(b.vel.z), flags, Math.round(f.health), Math.round(f.suit), Math.round(f.oxygen), Math.round(f.ultCharge), f.sealants, WIDS.indexOf(f.activeWeapon.id), Math.round(f.shieldHp)];
         });
         const mm: number[] = [g.match.teamScores[0], g.match.teamScores[1], Math.round(g.match.timeLeft)];
         for (const cp of g.match.controlPoints) mm.push(cp.owner, r2(cp.progress), cp.contested ? 1 : 0);
-        this.host?.broadcast({ t: 's', f: fs, m: mm }, false);
+        this.devT ^= 1;
+        this.host?.broadcast(this.devT ? { t: 's', f: fs, m: mm, d: g.summons.pack() } : { t: 's', f: fs, m: mm }, false);
       }
       this.sbT += dt;
       if (this.sbT >= 1 && this.peers.size) {
@@ -688,6 +770,11 @@ function flagsOf(f: Fighter): number {
     (f.activeWeapon.reloadT > 0 ? F_RELOAD : 0) |
     (f.breached ? F_BREACH : 0) |
     (f.invulnT > 0 ? F_INVULN : 0) |
-    (f.slot === 1 ? F_SLOT1 : 0)
+    (f.slot === 1 ? F_SLOT1 : 0) |
+    (b.stance === 'prone' ? F_PRONE : 0) |
+    (b.stance === 'slide' ? F_SLIDE : 0) |
+    (b.stance === 'roll' ? F_ROLL : 0) |
+    (f.deflectT > 0 ? F_DEFLECT : 0) |
+    (f.shieldHp > 0 ? F_SHIELD : 0)
   );
 }

@@ -7,6 +7,7 @@ import { LAYER_NO_OUTLINE } from '../render/Pipeline';
 import { HeroModel } from '../entities/HeroModel';
 
 export type SummonKind = 'turret' | 'huntdrone' | 'spotdrone' | 'kamikaze' | 'barricade' | 'decoy';
+export const SUMMON_KINDS: SummonKind[] = ['turret', 'huntdrone', 'spotdrone', 'kamikaze', 'barricade', 'decoy'];
 
 export interface Summon {
   id: number;
@@ -251,7 +252,14 @@ export class Summons {
   damage(s: Summon, amount: number, attacker: Fighter | null): void {
     if (s.dead) return;
     const g = this.game;
-    if (!g.isAuthority) return;
+    if (!g.isAuthority) {
+      // clients claim damage on the host's devices
+      if (attacker === g.local) {
+        g.localSummonHit();
+        g.onClientSummonClaim?.(s, amount);
+      }
+      return;
+    }
     s.hp -= amount;
     if (attacker === g.local) g.localSummonHit();
     if (s.hp <= 0) this.destroy(s, true);
@@ -261,6 +269,7 @@ export class Summons {
     if (s.dead) return;
     s.dead = true;
     const g = this.game;
+    if (g.isAuthority && !s.ghost) g.netHook?.('sdestroy', { id: s.id, v: violent ? 1 : 0 });
     const c = this.center(s, new THREE.Vector3());
     if (violent) {
       if (s.kind === 'decoy') g.effects.add.spawn({ pos: c, life: 0.4, size0: 2, size1: 0.1, color0: 0x7fd8ff, alpha0: 0.9, sprite: 4 });
@@ -354,6 +363,7 @@ export class Summons {
     g.effects.tracer(from, end, color, 0.05, 260);
     g.effects.muzzle(from, _d, color, 0.5);
     g.sound('drone_fire', null, 0.8, from);
+    g.netHook?.('sfx', { a: [from.x, from.y, from.z], b: [end.x, end.y, end.z], c: color });
   }
 
   private tickTurret(s: Summon, dt: number, owner: Fighter | null): void {
@@ -436,6 +446,7 @@ export class Summons {
     if (s.dead) return;
     const pos = s.pos.clone();
     this.destroy(s, false);
+    g.netHook?.('sboom', { p: [pos.x, pos.y, pos.z] });
     g.combat.explode({ pos, radius: 3.6, damage: 95, owner: s.owner, team: s.team, source: 'kamikaze', kind: 'missile', knock: 7, emp: 0, selfDamage: 0, suitMul: 1.3 });
   }
 
@@ -481,6 +492,41 @@ export class Summons {
       if (d > radius + s.radius) continue;
       this.damage(s, damage * (1 - Math.min(1, d / (radius + s.radius)) * 0.6), owner);
     }
+  }
+
+  // ------------------------------------------------------------------ replication
+
+  /** host → clients: compact state of every live device */
+  pack(): number[][] {
+    const r = (v: number) => Math.round(v * 100) / 100;
+    return this.list.filter((s) => !s.dead).map((s) => [s.id, SUMMON_KINDS.indexOf(s.kind), s.owner, r(s.pos.x), r(s.pos.y), r(s.pos.z), r(s.yaw), Math.round((s.hp / s.maxHp) * 100)]);
+  }
+
+  /** client: mirror the host's devices (spawn ghosts, move them, drop missing ones) */
+  unpack(rows: number[][]): void {
+    const g = this.game;
+    const seen = new Set<number>();
+    for (const d of rows) {
+      const [id, ki, owner, x, y, z, yaw, hp] = d;
+      seen.add(id);
+      let s = this.list.find((q) => q.id === id);
+      if (!s) {
+        const o = g.fighterById(owner);
+        const kind = SUMMON_KINDS[ki];
+        if (!o || !kind) continue;
+        s = this.spawn(kind, o, new THREE.Vector3(x, y, z), { id, ghost: true, yaw });
+      }
+      s.pos.set(x, y, z);
+      s.yaw = yaw;
+      s.hp = (hp / 100) * s.maxHp;
+    }
+    for (const s of this.list) if (s.ghost && !s.dead && !seen.has(s.id) && s.age > 0.5) this.destroy(s, false);
+  }
+
+  /** client: host reported a destroyed device */
+  remoteDestroy(id: number, violent: boolean): void {
+    const s = this.list.find((q) => q.id === id);
+    if (s) this.destroy(s, violent);
   }
 
   /** decoys the bots may target */

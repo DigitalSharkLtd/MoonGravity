@@ -3,6 +3,7 @@ import { StructureBuilder, Frame, Mat } from './Builder';
 import { glowMat, toonMat } from '../render/Toon';
 import { LAYER_NO_OUTLINE } from '../render/Pipeline';
 import { Rng } from '../core/Rng';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const Y = new THREE.Vector3(0, 1, 0);
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -58,23 +59,7 @@ class L {
 // animated helpers
 
 export function beacon(b: StructureBuilder, pos: THREE.Vector3, color = 0xff3a2a, period = 1.6, phase = 0): void {
-  const core = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), glowMat(color, 6));
-  const halo = new THREE.Mesh(
-    new THREE.SphereGeometry(0.55, 12, 8),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(1.5), transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
-  );
-  core.position.copy(pos);
-  halo.position.copy(pos);
-  core.layers.set(LAYER_NO_OUTLINE);
-  halo.layers.set(LAYER_NO_OUTLINE);
-  b.group.add(core, halo);
-  b.animated.push({
-    update(t) {
-      const on = ((t / period + phase) % 1) < 0.18;
-      core.visible = on;
-      halo.visible = on;
-    },
-  });
+  b.beacon(pos, color, period, phase);
 }
 
 function spinner(b: StructureBuilder, obj: THREE.Object3D, axis: THREE.Vector3, speed: number): void {
@@ -426,11 +411,11 @@ export function drillRig(b: StructureBuilder, f: Frame): void {
   pipe.position.y = (H - 2) / 2 + 1;
   pipe.castShadow = true;
   drill.add(pipe);
-  for (let y = 3; y < H - 2; y += 2.5) {
-    const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.35, 12), toonMat(0xffc21a));
-    collar.position.y = y;
-    drill.add(collar);
-  }
+  const collars: THREE.BufferGeometry[] = [];
+  for (let y = 3; y < H - 2; y += 2.5) collars.push(new THREE.CylinderGeometry(0.75, 0.75, 0.35, 12).translate(0, y, 0));
+  const cm = new THREE.Mesh(mergeGeometries(collars, false)!, toonMat(0xffc21a));
+  cm.castShadow = true;
+  drill.add(cm);
   const head = new THREE.Mesh(new THREE.ConeGeometry(1.4, 2.2, 8), toonMat(0x3b4150, { spec: 1 }));
   head.rotation.x = Math.PI;
   head.position.y = 0.4;
@@ -542,25 +527,28 @@ export function conveyor(b: StructureBuilder, x1: number, y1: number, z1: number
     const p = a.clone().lerp(c, i / n);
     pylon(b, p.x, p.z, p.y - 0.3, 0.7);
   }
-  // ore chunks riding the belt (animated)
+  // ore chunks riding the belt (one instanced draw call, no per-frame allocation)
   const mat = toonMat(0xc8d6e0, { flat: true, emissive: 0x2a8fa0, emissiveIntensity: 0.7 });
-  const chunks: THREE.Mesh[] = [];
   const cn = Math.floor(len / 2.5);
-  const geo = new THREE.DodecahedronGeometry(0.3, 0);
-  for (let i = 0; i < cn; i++) {
-    const m = new THREE.Mesh(geo, mat);
-    m.castShadow = true;
-    b.group.add(m);
-    chunks.push(m);
-  }
+  const im = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.3, 0), mat, cn);
+  im.castShadow = true;
+  im.frustumCulled = false;
+  b.group.add(im);
   const up = V(0, 1, 0).applyQuaternion(q);
+  const m4 = new THREE.Matrix4();
+  const pos = new THREE.Vector3();
+  const rq = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const one = new THREE.Vector3(1, 1, 1);
   b.animated.push({
     update(t) {
-      for (let i = 0; i < chunks.length; i++) {
-        const u = (i / chunks.length + t * 0.03) % 1;
-        chunks[i].position.copy(a).lerp(c, u).addScaledVector(up, 0.55);
-        chunks[i].rotation.set(i, i * 2, 0);
+      for (let i = 0; i < cn; i++) {
+        const u = (i / cn + t * 0.03) % 1;
+        pos.copy(a).lerp(c, u).addScaledVector(up, 0.55);
+        rq.setFromEuler(e.set(i, i * 2, 0));
+        im.setMatrixAt(i, m4.compose(pos, rq, one));
       }
+      im.instanceMatrix.needsUpdate = true;
     },
   });
 }

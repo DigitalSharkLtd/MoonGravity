@@ -414,7 +414,7 @@ export class Kit {
    * Stairs from bottom (x0,z0,y0) to top (x1,z1,y1): visual steps + one smooth tilted ramp collider
    * (metal, so mag-boots keep contact). Slope is clamped by the caller (≤ 32° recommended).
    */
-  stairs(x0: number, z0: number, x1: number, z1: number, y0: number, y1: number, width: number, o: { mat?: Mat; style?: 'solid' | 'open'; rails?: 'both' | 'l' | 'r' | 'none'; railMat?: Mat; test?: boolean; light?: boolean; metal?: boolean; foot?: boolean } = {}): void {
+  stairs(x0: number, z0: number, x1: number, z1: number, y0: number, y1: number, width: number, o: { mat?: Mat; style?: 'solid' | 'open'; rails?: 'both' | 'l' | 'r' | 'none'; railMat?: Mat; test?: boolean; light?: boolean; metal?: boolean; foot?: boolean; tread?: Mat } = {}): void {
     const L = Math.hypot(x1 - x0, z1 - z0);
     const H = y1 - y0;
     const rot = Math.atan2(-(z1 - z0), x1 - x0);
@@ -436,8 +436,9 @@ export class Kit {
       // nosing strips
       for (let i = 0; i < n; i += 1) k.box((i + 0.08) * run, (i + 1) * rise - 0.02, 0, 0.1, 0.05, width - 0.1, i % 2 ? 'yellow' : 'trim', { collide: false, bevel: 0.01 });
     } else {
-      for (let i = 0; i < n; i++) k.box((i + 0.5) * run, (i + 1) * rise - 0.05, 0, run + 0.04, 0.1, width - 0.2, 'grid', { collide: false, bevel: 0.02 });
-      for (const s of [-1, 1]) k.beam([0, -0.2, (s * width) / 2 - s * 0.1], [L, H - 0.1, (s * width) / 2 - s * 0.1], 0.22, 'trim');
+      for (let i = 0; i < n; i++) k.box((i + 0.5) * run, (i + 1) * rise - 0.05, 0, run + 0.04, 0.1, width - 0.2, o.tread ?? 'grid', { collide: false, bevel: 0.02 });
+      const sa = Math.atan2(H, L);
+      for (const s of [-1, 1]) k.box(L / 2, H / 2 - 0.12, (s * width) / 2 - s * 0.08, Math.hypot(L, H) + 0.1, 0.34, 0.14, mat, { collide: false, bevel: 0.04, tilt: qAxis(0, 0, 1, sa) });
     }
     // ramp collider through the nosings, flush with both floors (a lip at the top edge would snag
     // mag-boots: the support probe prefers the nearest metal edge)
@@ -708,16 +709,23 @@ export class Kit {
   chair(x: number, z: number, rot: number, y = 0, mat: Mat = 'orange'): void {
     if (this.blocked(x, z, 0.5, 0.5, y, rot)) return;
     const k = this.at(x, z, rot, y);
-    k.box(0, 0.45, 0, 0.5, 0.1, 0.5, mat, { collide: false, bevel: 0.03 });
-    k.box(0, 0.75, -0.22, 0.5, 0.55, 0.08, mat, { collide: false, bevel: 0.03 });
+    const cush: Mat = mat === 'teal' ? 'fabricTeal' : mat === 'orange' ? 'fabricOrange' : mat;
+    k.box(0, 0.45, 0, 0.5, 0.12, 0.5, cush, { collide: false, bevel: 0.05 });
+    k.box(0, 0.75, -0.22, 0.5, 0.55, 0.1, cush, { collide: false, bevel: 0.05 });
     k.box(0, 0.22, 0, 0.08, 0.44, 0.08, 'steel', { collide: false, bevel: 0 });
   }
   sofa(x: number, z: number, rot: number, w = 2.2, y = 0, mat: Mat = 'teal'): void {
     if (this.blocked(x, z, w, 0.9, y, rot)) return;
     const k = this.at(x, z, rot, y);
     k.box(0, 0.25, 0, w, 0.5, 0.9, 'trim', { bevel: 0.05, metal: false });
-    k.box(0, 0.55, 0.05, w - 0.1, 0.2, 0.8, mat, { collide: false, bevel: 0.08 });
-    k.box(0, 0.85, -0.35, w, 0.6, 0.22, mat, { collide: false, bevel: 0.08 });
+    const cush: Mat = mat === 'teal' ? 'fabricTeal' : mat === 'orange' ? 'fabricOrange' : mat;
+    for (let i = 0; i < Math.max(1, Math.round(w / 1.1)); i++) {
+      const n = Math.max(1, Math.round(w / 1.1));
+      const cw = (w - 0.1) / n;
+      k.box(-w / 2 + 0.05 + cw * (i + 0.5), 0.58, 0.05, cw - 0.04, 0.24, 0.8, cush, { collide: false, bevel: 0.1 });
+      k.box(-w / 2 + 0.05 + cw * (i + 0.5), 0.9, -0.33, cw - 0.04, 0.6, 0.24, cush, { collide: false, bevel: 0.1 });
+    }
+    for (const s of [-1, 1]) k.box((s * w) / 2, 0.62, 0, 0.2, 0.5, 0.9, cush, { collide: false, bevel: 0.08 });
   }
   barrels(x: number, z: number, n: number, y = 0, mat: Mat = 'orange'): void {
     if (this.blocked(x, z, 2, 2, y)) return;
@@ -801,13 +809,29 @@ export class Kit {
    * Slopes ≤ ~50° are walkable; collider = core box + two tilted slope boxes (non-metal).
    */
   berm(ax: number, az: number, bx: number, bz: number, h: number, top: number, base: number, y = 0, mat: Mat = 'dirt', o: { collide?: boolean; ends?: boolean; metal?: boolean } = {}): void {
+    // mounded profile (piled regolith): convex, slightly rounded shoulders
+    const sh = (base - top) / 2;
     const prof: [number, number][] = [
       [-base / 2, -0.4],
       [base / 2, -0.4],
-      [top / 2, h],
-      [-top / 2, h],
+      [base / 2 - sh * 0.45, h * 0.62],
+      [top / 2 + sh * 0.08, h * 0.95],
+      [top / 2 - 0.2, h],
+      [-top / 2 + 0.2, h],
+      [-top / 2 - sh * 0.08, h * 0.95],
+      [-base / 2 + sh * 0.45, h * 0.62],
     ];
     this.extrude(ax, az, bx, bz, y, prof, mat, { seg: 3, caps: true });
+    // scattered regolith clods along the crest (breaks the silhouette)
+    {
+      const L = Math.hypot(bx - ax, bz - az);
+      const rng = new Rng(Math.floor((ax * 31 + az * 17 + bx * 7) * 10) | 0);
+      const kk = this.at((ax + bx) / 2, (az + bz) / 2, Math.atan2(-(bz - az), bx - ax), y);
+      for (let u = -L / 2 + 0.6; u < L / 2 - 0.4; u += rng.range(1.2, 2.4)) {
+        const g = new THREE.DodecahedronGeometry(rng.range(0.25, 0.55), 0);
+        this.b.add(mat, g, kk.p(u, h - 0.05, rng.range(-top / 2, top / 2)), qY(rng.next() * 6), V(1, 0.6, 1));
+      }
+    }
     const len = Math.hypot(bx - ax, bz - az);
     const rot = Math.atan2(-(bz - az), bx - ax);
     const k = this.at((ax + bx) / 2, (az + bz) / 2, rot, y);

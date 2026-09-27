@@ -78,7 +78,10 @@ export type Mat =
   | 'labelHab'
   | 'labelDepot'
   | 'dirt'
-  | 'growPink';
+  | 'growPink'
+  | 'screenMap'
+  | 'fabricTeal'
+  | 'fabricOrange';
 
 /** A static light baked into structure vertices (warm interior pools, doorway spills). */
 export interface BakeLight {
@@ -188,11 +191,11 @@ export class StructureBuilder {
         style: { rim: 0.22 },
       });
     this.mats = {
-      hull: paint('hull', 0xf1eee8),
+      hull: paint('hull', 0xcbc7bf),
       hullGray: paint('hullGray', 0xa5acb8),
       dark: pbr('b-dark', { color: 0x3a404c, set: brushed, roughness: 1.15, metalness: 0.75, style: { rim: 0.2 } }),
       darkPanel: paint('darkPanel', 0x5a6272, hull2),
-      steel: pbr('b-steel', { color: 0xc9ced8, set: brushed, roughness: 1, metalness: 1, physical: { anisotropy: 0.5 }, style: { rim: 0.2 } }),
+      steel: pbr('b-steel', { color: 0xa9afba, set: brushed, roughness: 1.25, metalness: 0.9, physical: { anisotropy: 0.5 }, style: { rim: 0.2 } }),
       team0: paint('team0', TEAM_COLORS[0].main, hull2, { coat: 0.6 }),
       team1: paint('team1', TEAM_COLORS[1].main, hull2, { coat: 0.6 }),
       team0Glow: glowMat(TEAM_COLORS[0].glow, 2.6),
@@ -203,12 +206,12 @@ export class StructureBuilder {
       glassWarm: glowMat(0xffd89a, 1.6),
       solar: pbr('b-solar', { set: solarSet(), roughness: 1, metalness: 1, physical: { clearcoat: 1, clearcoatRoughness: 0.05 }, style: { rim: 0.15 } }),
       gold: pbr('b-gold', { set: foilSet(6), roughness: 1, metalness: 1, style: { rim: 0.35, rimColor: 0xffe7a0 } }),
-      grid: pbr('b-grid', { color: 0xb8bec9, set: plate, roughness: 1, metalness: 1, style: { rim: 0.15 } }),
+      grid: pbr('b-grid', { color: 0xb8bec9, set: plate, roughness: 1.35, metalness: 0.75, style: { rim: 0.15 } }),
       rubber: pbr('b-rubber', { color: 0x1f2228, roughness: 0.9, metalness: 0 }),
       containerRed: pbr('b-cRed', { color: 0xc4432f, set: corr, roughness: 1, metalness: 1 }),
       containerBlue: pbr('b-cBlue', { color: 0x2f6fb5, set: corr, roughness: 1, metalness: 1 }),
       containerGreen: pbr('b-cGreen', { color: 0x4f8f4a, set: corr, roughness: 1, metalness: 1 }),
-      containerWhite: pbr('b-cWhite', { color: 0xd8d8d2, set: corr, roughness: 1, metalness: 1 }),
+      containerWhite: pbr('b-cWhite', { color: 0xc4c4be, set: corr, roughness: 1, metalness: 1 }),
       ore: glowMat(0x7ff0ff, 2.4),
       oreRock: pbr('b-oreRock', { color: 0xd6e6f0, roughness: 0.14, metalness: 0.85, flat: true, emissive: 0x1d7c8c, emissiveIntensity: 0.9, physical: { iridescence: 1, clearcoat: 0.8 }, style: { rim: 0.6, rimColor: 0x9ff6ff } }),
       beaconRed: glowMat(0xff3a2a, 5),
@@ -220,24 +223,27 @@ export class StructureBuilder {
       labelMine: pbr('b-labelMine', { map: labelTex('PD-46', 'PALLADIUM EXTRACTION SITE', '#ffc21a', '#1a1c24'), roughness: 0.45, metalness: 0.1 }),
       concrete: pbr('b-concrete', { color: 0xb9b3a8, set: concrete, roughness: 1, metalness: 1, style: { rim: 0.12 } }),
       // ---- architectural kit (OW-like palette: creamy whites, warm trims, teal/orange/brass accents) ----
-      cream: paint('cream', 0xf3e4c8, panelSet(8, { depth: 3, minSize: SIZE_SMALL, wear: 0.6 })),
+      cream: paint('cream', 0xcfbb9a, hull),
       trim: pbr('b-trim', { color: 0x4d4843, set: brushed, roughness: 1.1, metalness: 0.7, style: { rim: 0.25 } }),
       teal: paint('teal', 0x1c9c92, hull2, { coat: 0.5 }),
       orange: paint('orange', 0xf2782a, hull2, { coat: 0.5 }),
       brass: pbr('b-brass', { color: 0xe0a94e, set: brushed, roughness: 0.8, metalness: 1, physical: { clearcoat: 0.6, clearcoatRoughness: 0.3 }, style: { rim: 0.35, rimColor: 0xffe0a0 } }),
-      regolith: pbr('b-regolith', { color: 0xc4b8a3, set: printedSet(1), roughness: 1, metalness: 1, style: { rim: 0.12, rimColor: 0xe8dcc8 } }),
-      regolithCell: pbr('b-regolithCell', { color: 0xcdbfa8, set: printedSet(2, true), roughness: 1, metalness: 1, style: { rim: 0.14, rimColor: 0xe8dcc8 } }),
+      regolith: pbr('b-regolith', { color: 0xaaa398, set: printedSet(1), roughness: 1, metalness: 1, style: { rim: 0.12, rimColor: 0xe8dcc8 } }),
+      regolithCell: pbr('b-regolithCell', { color: 0xb7ad9f, set: printedSet(2, true), roughness: 1, metalness: 1, style: { rim: 0.14, rimColor: 0xe8dcc8 } }),
       sandbag: pbr('b-sandbag', { color: 0xb09f82, set: sandbagSet(5), roughness: 1, metalness: 1, style: { rim: 0.1 } }),
       hesco: pbr('b-hesco', { color: 0xb8ab93, set: meshBasketSet(4), roughness: 1, metalness: 1, style: { rim: 0.12 } }),
-      fabric: pbr('b-fabric', { color: 0xf6f1e4, set: fabricSet(), roughness: 1, metalness: 0, physical: { sheen: 0.6, sheenColor: 0xfff4dc, sheenRoughness: 0.5 }, style: { rim: 0.3, rimColor: 0xfff0d8 } }),
+      fabric: pbr('b-fabric', { color: 0xdcd6c8, set: fabricSet(), roughness: 1, metalness: 0, physical: { sheen: 0.6, sheenColor: 0xfff4dc, sheenRoughness: 0.5 }, style: { rim: 0.3, rimColor: 0xfff0d8 } }),
       tile: pbr('b-tile', { color: 0xe0d2bb, set: tileSet(2), roughness: 1, metalness: 1, style: { rim: 0.1 } }),
       wood: pbr('b-wood', { color: 0xc98f55, set: woodSet(3), roughness: 1, metalness: 1, style: { rim: 0.15, rimColor: 0xffd9a8 } }),
       plant: pbr('b-plant', { color: 0x63b447, roughness: 0.62, metalness: 0, flat: true, emissive: 0x16330c, emissiveIntensity: 0.6, style: { rim: 0.45, rimColor: 0xc8ff9a } }),
       plantDark: pbr('b-plantDark', { color: 0x2f8240, roughness: 0.7, metalness: 0, flat: true, emissive: 0x0b240f, emissiveIntensity: 0.6, style: { rim: 0.35, rimColor: 0xb0ff90 } }),
       soil: pbr('b-soil', { color: 0x4f3a2a, set: concrete, roughness: 1.1, metalness: 0, style: { rim: 0.05 } }),
-      padDark: pbr('b-padDark', { color: 0x77726a, set: concreteSet(21), roughness: 1, metalness: 1, style: { rim: 0.1 } }),
-      paintWhite: pbr('b-paintWhite', { color: 0xf2efe6, roughness: 0.7, metalness: 0, style: { rim: 0.1 } }),
+      padDark: pbr('b-padDark', { color: 0x9a958d, set: concrete, roughness: 1, metalness: 1, style: { rim: 0.1 } }),
+      paintWhite: pbr('b-paintWhite', { color: 0xd6d2c9, roughness: 0.7, metalness: 0, style: { rim: 0.1 } }),
+      fabricTeal: pbr('b-fabricTeal', { color: 0x2c9e94, set: fabricSet(), roughness: 1, metalness: 0, physical: { sheen: 0.8, sheenColor: 0x9ff6e8, sheenRoughness: 0.5 }, style: { rim: 0.3 } }),
+      fabricOrange: pbr('b-fabricOrange', { color: 0xe8772e, set: fabricSet(), roughness: 1, metalness: 0, physical: { sheen: 0.8, sheenColor: 0xffc890, sheenRoughness: 0.5 }, style: { rim: 0.3 } }),
       screen: glowMat(0x62f2e4, 1.9),
+      screenMap: new THREE.MeshBasicMaterial({ map: tacticalTex(), color: new THREE.Color(1.25, 1.25, 1.25), toneMapped: false }),
       screenAmber: glowMat(0xffb24a, 2.1),
       neonTeal: glowMat(0x3ff2d6, 3.2),
       neonWarm: glowMat(0xffc47a, 3.4),
@@ -246,7 +252,7 @@ export class StructureBuilder {
       labelPort: pbr('b-labelPort', { map: labelTex('TYCHO PORT', 'LUNAR SPACEPORT · GATE 2', '#1c7f86', '#f6f0e0'), roughness: 0.45, metalness: 0.1 }),
       labelLab: pbr('b-labelLab', { map: labelTex('SELENE LAB', 'SELENOLOGY INSTITUTE', '#f6efe0', '#c2571c'), roughness: 0.45, metalness: 0.1 }),
       labelHab: pbr('b-labelHab', { map: labelTex('HAB-3', 'CIVIL HABITAT · ЖИЛОЙ КВАРТАЛ', '#e98a2c', '#fff7ea'), roughness: 0.45, metalness: 0.1 }),
-      dirt: pbr('b-dirt', { color: 0xb3ada3, set: regolithSet(12), roughness: 1.05, metalness: 0, style: { rim: 0.08 } }),
+      dirt: pbr('b-dirt', { color: 0xa8a399, set: regolithSet(12), roughness: 1.05, metalness: 0, style: { rim: 0.08 } }),
       growPink: glowMat(0xff5ad2, 2.4),
       labelDepot: pbr('b-labelDepot', { map: labelTex('DEPOT 12', 'SUPPLY · O₂ · FUEL', '#3a3f4a', '#ffc21a'), roughness: 0.45, metalness: 0.1 }),
     };
@@ -417,6 +423,7 @@ export class StructureBuilder {
     this.group.userData.bakeMs = bakeMs;
     this.group.userData.lights = lights.length;
     this.group.userData.testPaths = this.testPaths;
+    this.group.userData.skipped = this.skipped;
     return this.group;
   }
 
@@ -594,6 +601,68 @@ function ensureBakePatch(m: THREE.Material): void {
     };
   }
   m.needsUpdate = true;
+}
+
+/** Tactical display (war room / control rooms): lunar map contours, grid, blips — canvas texture. */
+let tactical: THREE.CanvasTexture | null = null;
+function tacticalTex(): THREE.CanvasTexture {
+  if (tactical) return tactical;
+  const w = 512;
+  const h = 256;
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const c = cv.getContext('2d')!;
+  c.fillStyle = '#062226';
+  c.fillRect(0, 0, w, h);
+  c.strokeStyle = 'rgba(80,220,230,0.25)';
+  c.lineWidth = 1;
+  for (let x = 0; x < w; x += 32) {
+    c.beginPath();
+    c.moveTo(x, 0);
+    c.lineTo(x, h);
+    c.stroke();
+  }
+  for (let y = 0; y < h; y += 32) {
+    c.beginPath();
+    c.moveTo(0, y);
+    c.lineTo(w, y);
+    c.stroke();
+  }
+  c.strokeStyle = 'rgba(120,240,255,0.7)';
+  c.lineWidth = 2;
+  for (let r = 20; r < 140; r += 22) {
+    c.beginPath();
+    c.ellipse(w * 0.5, h * 0.52, r * 1.5, r * 0.8, 0.2, 0, Math.PI * 2);
+    c.stroke();
+  }
+  c.strokeStyle = 'rgba(255,190,90,0.9)';
+  c.lineWidth = 3;
+  c.beginPath();
+  c.moveTo(40, 200);
+  c.lineTo(160, 150);
+  c.lineTo(250, 130);
+  c.lineTo(360, 90);
+  c.lineTo(470, 60);
+  c.stroke();
+  const blip = (x: number, y: number, col: string, label: string) => {
+    c.fillStyle = col;
+    c.beginPath();
+    c.arc(x, y, 7, 0, Math.PI * 2);
+    c.fill();
+    c.font = 'bold 18px "Russo One", sans-serif';
+    c.fillText(label, x + 11, y - 8);
+  };
+  blip(96, 176, '#4dd8ff', 'A');
+  blip(256, 130, '#7ff0ff', 'B');
+  blip(420, 72, '#ffa033', 'C');
+  c.fillStyle = 'rgba(120,240,255,0.9)';
+  c.font = 'bold 16px "Russo One", sans-serif';
+  c.fillText('TYCHO SECTOR · PD-46', 14, 22);
+  c.fillText('Δv 1.62', w - 90, h - 14);
+  tactical = new THREE.CanvasTexture(cv);
+  tactical.colorSpace = THREE.SRGBColorSpace;
+  return tactical;
 }
 
 function indexify(g: THREE.BufferGeometry): THREE.BufferGeometry {

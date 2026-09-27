@@ -10,7 +10,7 @@ import { HeroModel } from './entities/HeroModel';
 import { MODES, ModeId, HeroId, Settings, Profile, MatchResult, HERO_ORDER, MapId } from './game/Types';
 import { MenuSystem, MenuCallbacks } from './ui/Menu';
 import { Hud } from './ui/Hud';
-import { loadSettings, saveSettings, loadProfile, saveProfile, applyMatch } from './ui/Storage';
+import { loadSettings, saveSettings, loadProfile, saveProfile, applyMatch, selectedBuild } from './ui/Storage';
 import { audio } from './audio/Audio';
 import { setGameLang } from './game/Strings';
 import { NetGame } from './net/NetGame';
@@ -139,6 +139,13 @@ function backdropCamera(dt: number): void {
 // ---------------------------------------------------------------------------
 // match lifecycle
 
+/** unlocked build per hero for the local player */
+function buildsOf(p: Profile): Partial<Record<HeroId, string>> {
+  const out: Partial<Record<HeroId, string>> = {};
+  for (const h of HERO_ORDER) out[h] = selectedBuild(p, h);
+  return out;
+}
+
 async function startMatch(mode: ModeId, hero: HeroId, role: 'offline' | 'host' | 'client', netGame: NetGame | null): Promise<void> {
   const info = MODES[mode];
   state = 'loading';
@@ -162,6 +169,7 @@ async function startMatch(mode: ModeId, hero: HeroId, role: 'offline' | 'host' |
     mode,
     hero,
     name: settings.playerName || profile.name,
+    builds: buildsOf(profile),
     net: netGame ? netGame.bridge : offlineBridge,
     bots: role !== 'client',
     hooks: {
@@ -282,7 +290,7 @@ async function playOnline(mode: ModeId, hero: HeroId, join?: string): Promise<vo
   };
   menu.showMatchmaking('searching', onCancel);
   try {
-    const conn = await NetGame.connect({ mode, name: settings.playerName || profile.name, hero, join, onStatus: (s) => !cancel.v && menu.showMatchmaking(s, onCancel) });
+    const conn = await NetGame.connect({ mode, name: settings.playerName || profile.name, hero, build: selectedBuild(profile, hero), join, onStatus: (s) => !cancel.v && menu.showMatchmaking(s, onCancel) });
     if (cancel.v) {
       conn.close();
       return;
@@ -305,8 +313,8 @@ async function playOnline(mode: ModeId, hero: HeroId, join?: string): Promise<vo
 // menu callbacks
 
 const cb: MenuCallbacks = {
-  onPlay: ({ mode, online, hero }) => {
-    profile = { ...profile, selectedHero: hero };
+  onPlay: ({ mode, online, hero, build }) => {
+    profile = { ...profile, selectedHero: hero, builds: build ? { ...(profile.builds ?? {}), [hero]: build } : profile.builds };
     saveProfile(profile);
     if (online) void playOnline(mode, hero);
     else void startMatch(mode, hero, 'offline', null);
@@ -327,13 +335,18 @@ const cb: MenuCallbacks = {
     saveProfile(p);
     if (state === 'menu' && (!backdropHero || backdropHero.hero !== p.selectedHero)) placeBackdropHero(p.selectedHero);
   },
-  onHeroPicked: (hero) => {
+  onHeroPicked: (hero, build) => {
     if (game && game.local) {
       game.heroSelectOpen = false;
-      if (!game.local.alive) game.setHero(game.local, hero);
-      net?.heroChanged(hero);
-      profile = { ...profile, selectedHero: hero };
+      profile = { ...profile, selectedHero: hero, builds: build ? { ...(profile.builds ?? {}), [hero]: build } : profile.builds };
       saveProfile(profile);
+      const b = selectedBuild(profile, hero);
+      game.builds[hero] = b;
+      if (!game.local.alive) {
+        if (game.local.hero !== hero) game.setHero(game.local, hero);
+        else game.setBuild(game.local, b);
+      }
+      net?.heroChanged(hero, b);
     }
     menu.hide();
     input.lock();
@@ -401,5 +414,9 @@ void (async () => {
     hud,
     HERO_ORDER,
     start: (mode: ModeId, hero: HeroId) => startMatch(mode, hero, 'offline', null),
+    online: (mode: ModeId, hero: HeroId, join?: string) => playOnline(mode, hero, join),
+    get net() {
+      return net;
+    },
   };
 })();

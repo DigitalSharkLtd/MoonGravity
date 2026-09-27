@@ -271,8 +271,16 @@ export class Game {
     let pos = b.pos.clone().addScaledVector(fwd, 1.6).addScaledVector(side, 0.9);
     const probe = pos.clone().add(new THREE.Vector3(0, 1, 0));
     if (this.world.physics.pointBlocked(probe, 0.45)) pos = b.pos.clone();
-    const f = new Fighter(this.nextId++, gs('servitor'), owner.team, 'forge', 'bot', this.world.physics);
-    f.setHero('forge', owner.flags.has('toughServitors') ? SERVITOR_TOUGH_DEF : SERVITOR_DEF);
+    const yaw = Math.atan2(-fwd.x, -fwd.z);
+    const f = this.makeServitor(owner, this.nextId++, pos, yaw, 'bot');
+    this.netHook?.('servitor', { id: f.id, owner: owner.id, p: [pos.x, pos.y, pos.z], yaw, tough: owner.flags.has('toughServitors') ? 1 : 0 });
+    return f;
+  }
+
+  private makeServitor(owner: Fighter, id: number, pos: THREE.Vector3, yaw: number, control: 'bot' | 'remote', tough = owner.flags.has('toughServitors')): Fighter {
+    this.nextId = Math.max(this.nextId, id + 1);
+    const f = new Fighter(id, gs('servitor'), owner.team, 'forge', control, this.world.physics);
+    f.setHero('forge', tough ? SERVITOR_TOUGH_DEF : SERVITOR_DEF);
     f.body.standHeight = f.body.height = 1.7;
     f.body.radius = 0.38;
     f.summonOf = owner.id;
@@ -283,7 +291,6 @@ export class Game {
     f.model = new HeroModel('forge', teamColor, 'servitor');
     this.world.scene.add(f.model.root);
     this.fighters.push(f);
-    const yaw = Math.atan2(-fwd.x, -fwd.z);
     f.spawn(pos, yaw);
     f.spawnProtect = 0;
     f.model.setWeapon(f.weapon.id);
@@ -292,8 +299,15 @@ export class Game {
     this.effects.shockwave(pos.clone().add(new THREE.Vector3(0, 0.1, 0)), new THREE.Vector3(0, 1, 0), 2.5, 0xff9f43, 0.4, 0.5);
     this.effects.dust(pos, 16, 1.5);
     this.sound('deploy', null, 1, pos);
-    this.netHook?.('servitor', { id: f.id, owner: owner.id, x: pos.x, y: pos.y, z: pos.z, yaw });
     return f;
+  }
+
+  /** client: mirror a servitor the host built */
+  addServitorGhost(id: number, ownerId: number, pos: THREE.Vector3, yaw: number, tough: boolean): void {
+    const owner = this.fighterById(ownerId);
+    if (!owner || this.fighterById(id)) return;
+    const f = this.makeServitor(owner, id, pos, yaw, 'remote', tough);
+    f.summonLife = 999; // the host decides when it goes away
   }
 
   /** remove a servitor (timed out / replaced / owner gone) */
@@ -421,6 +435,7 @@ export class Game {
   onClientClaim: ((d: DamageSpec) => void) | null = null;
   onClientHeal: ((t: Fighter, hp: number, suit: number) => void) | null = null;
   onClientSeal: (() => void) | null = null;
+  onClientSummonClaim: ((s: import('./Summons').Summon, amount: number) => void) | null = null;
   /** host: replicated match events (pickups, pods, captures, end) */
   netHook: ((ev: string, data: unknown) => void) | null = null;
   onDamageApplied: ((d: DamageSpec, killed: boolean) => void) | null = null;

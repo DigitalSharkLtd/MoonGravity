@@ -222,9 +222,15 @@ export class Abilities {
         if (wish.lengthSq() < 0.01) b.forward(wish);
         wish.normalize();
         const from = b.center(new THREE.Vector3());
-        const hit = g.world.physics.raycast(from, wish, 8, { forMove: true });
-        const dist = hit ? Math.max(0, hit.t - 0.7) : 8;
-        if (dist < 1) return false;
+        // clear path for the whole body (knees, chest, head): one ray from the centre let a blink end
+        // inside a crate or under a low beam and left Phantom stuck
+        let free = 8;
+        for (const hgt of [0.35, b.height * 0.5, b.height - 0.15]) {
+          const hit = g.world.physics.raycast(_v.copy(b.pos).addScaledVector(b.up, hgt), wish, 8, { forMove: true });
+          if (hit) free = Math.min(free, hit.t);
+        }
+        const dist = Math.max(0, free - 0.6);
+        if (dist < 0.8) return false;
         g.effects.add.spawn({ pos: from, life: 0.35, size0: 1.6, size1: 0.2, color0: 0xb06cff, alpha0: 0.9, sprite: 4 });
         for (let i = 0; i < 12; i++) g.effects.add.spawn({ pos: from.clone().addScaledVector(wish, (i / 12) * dist), life: 0.3, size0: 0.5, size1: 0.05, color0: 0xc58cff, alpha0: 0.6, sprite: 0 });
         b.pos.addScaledVector(wish, dist);

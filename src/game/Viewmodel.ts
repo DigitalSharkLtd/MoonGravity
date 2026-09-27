@@ -233,10 +233,14 @@ export class Viewmodel {
   private reticle: THREE.Mesh | null = null;
 
   get muzzle(): THREE.Object3D | null {
+    if (this.twinSide && this.weapon?.offMuzzle) return this.weapon.offMuzzle;
     return this.weapon?.muzzle ?? null;
   }
+  /** twin pistols: 0 = right fires next, 1 = left */
+  private twinSide = 0;
 
   fired(recoil: number): void {
+    if (this.weapon?.offMuzzle) this.twinSide ^= 1;
     this.kick = Math.min(1.5, this.kick + 0.35 + recoil * 5);
     this.kickRot = Math.min(0.25, this.kickRot + recoil * 1.6 + 0.02);
   }

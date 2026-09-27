@@ -484,7 +484,9 @@ export class HeroModel {
   }
   fired(): void {
     this.fireKick = 1;
+    if (this.weapon?.offMuzzle) this.twinSide ^= 1; // twin pistols alternate
   }
+  private twinSide = 0;
   resetPose(): void {
     this.deathT = 0;
     this.bones.get('root')!.rotation.set(0, 0, 0);
@@ -516,7 +518,8 @@ export class HeroModel {
     const cloaked = amount > 0.5;
     this.meshes.forEach((m, i) => (m.material = cloaked ? this.cloakMat : this.baseMats[i]));
     for (const o of this.outlines) o.visible = !cloaked && this.highlight !== 'none';
-    this.weaponHolder.visible = this.weaponHolderL.visible = !cloaked;
+    // (never in first person: the owner sees the viewmodel instead — un-cloaking used to show both)
+    this.weaponHolder.visible = this.weaponHolderL.visible = !cloaked && !this.fp;
   }
 
   update(dt: number, s: AnimState, time: number): void {
@@ -890,7 +893,7 @@ export class HeroModel {
 
   private updateWorld(): void {
     this.root.updateMatrixWorld(true);
-    if (this.weapon) this.weapon.muzzle.getWorldPosition(this.muzzleWorld);
+    if (this.weapon) (this.twinSide && this.weapon.offMuzzle ? this.weapon.offMuzzle : this.weapon.muzzle).getWorldPosition(this.muzzleWorld);
     else this.bones.get('handR')!.getWorldPosition(this.muzzleWorld);
     this.bones.get('pack')!.getWorldPosition(this.packWorld);
     this.bones.get('head')!.getWorldPosition(this.headWorld);

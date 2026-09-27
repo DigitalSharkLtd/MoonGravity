@@ -119,10 +119,10 @@ export class Effects {
     this.beamMesh.renderOrder = 11;
     this.group.add(this.beamMesh);
 
-    // point light pool for flashes
+    // point light pool for flashes. The lights stay visible (intensity 0 when idle): three.js bakes the
+    // number of lights into every lit shader, so toggling them recompiled every material mid-fight
     for (let i = 0; i < 3; i++) {
       const l = new THREE.PointLight(0xffffff, 0, 20, 2);
-      l.visible = false;
       this.group.add(l);
       this.lights.push({ light: l, t: 0, life: 0, i0: 0 });
     }
@@ -166,7 +166,6 @@ export class Effects {
     best.light.color.setHex(color);
     best.light.distance = dist;
     best.light.intensity = intensity;
-    best.light.visible = true;
     best.t = 0;
     best.life = life;
     best.i0 = intensity;
@@ -577,13 +576,11 @@ export class Effects {
       }
     }
     for (const l of this.lights) {
-      if (!l.light.visible) continue;
+      if (l.t >= l.life) continue;
       l.t += dt;
       const k = l.t / l.life;
-      if (k >= 1) {
-        l.light.visible = false;
-        l.light.intensity = 0;
-      } else l.light.intensity = l.i0 * (1 - k) * (1 - k);
+      if (k >= 1) l.light.intensity = 0;
+      else l.light.intensity = l.i0 * (1 - k) * (1 - k);
     }
     this.updateBeams(dt);
     this.flash = Math.max(0, this.flash - dt * 0.8);

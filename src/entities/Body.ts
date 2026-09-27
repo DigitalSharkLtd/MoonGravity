@@ -100,7 +100,7 @@ export class Body {
   /** suit RCS air control (m/s²) */
   airControl = 2.4;
   /** jetpack: vertical thrust (m/s²), climb-speed cap, fuel burn (1/s) and refuel rates */
-  jetThrust = 8.8;
+  jetThrust = 12.5;
   jetCap = 4.2;
   jetBurn = 1 / 2.3;
   jetRegen = 0.5;
@@ -428,6 +428,14 @@ export class Body {
         this.attached = false;
         ev.jumped = true;
         this.jetDelay = 0.3;
+        magActive = false;
+        jumpedNow = true;
+      } else if (input.jump && this.jumpHold >= this.jetHold && this.jetFuel > 0.05 && !this.proneOn && !(this.attached && this.up.y < 0.8)) {
+        // jump still held on the ground (standing, or landed while holding): the jetpack lifts off
+        this.vel.y = Math.max(this.vel.y, 1.2);
+        this.grounded = false;
+        this.attached = false;
+        this.jetDelay = 0;
         magActive = false;
         jumpedNow = true;
       }

@@ -354,8 +354,6 @@ export class Viewmodel {
     if (!blade && sw > 0) gripL.z -= Math.sin((1 - sw) * Math.PI) * 0.18;
     if (this.grappleK > 0.01) gripL.lerp(_f.set(-0.17, -0.1, -0.36), this.grappleK);
     this.aimArm(this.armL, gripL, _d.set(twin ? -0.32 : -0.42, -0.6, 0.68), gq);
-    // fully aimed: the support arm is out of the sight picture entirely
-    this.armL.visible = blade || twin || this.ads < 0.85;
   }
 
   /** place a forearm: hand at `at`, sleeve running along `back` (camera space), glove rolled like the gun */

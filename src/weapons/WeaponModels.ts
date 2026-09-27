@@ -810,9 +810,10 @@ function burst(c: Ctx): void {
   at(new THREE.CircleGeometry(0.024, 6), glowMat(col, 1.2), 0, sy, 0.2555, 0, Math.PI, 0);
   for (const f of [0.08, 0.19]) at(sect([[-0.014, 0.1], [0.014, 0.1], [0.012, sy - 0.02], [-0.012, sy - 0.02]], f - 0.012, f + 0.012, { bevel: 0.003 }), D);
   // drone-link antenna
-  at(new THREE.CylinderGeometry(0.004, 0.006, 0.09, 6), S, -0.03, 0.14, -0.01, 0.35, 0, 0);
-  at(rbox(0.01, 0.01, 0.01, 0.003), glowSoft, -0.03, 0.182, -0.025);
-  at(rbox(0.024, 0.03, 0.03, 0.006), D, -0.03, 0.105, 0.0);
+  // drone-link antenna on the stock (on the receiver it stood right in front of the eye when aiming)
+  at(new THREE.CylinderGeometry(0.004, 0.006, 0.09, 6), S, -0.03, 0.135, -0.265, 0.35, 0, 0);
+  at(rbox(0.01, 0.01, 0.01, 0.003), glowSoft, -0.03, 0.177, -0.28);
+  at(rbox(0.024, 0.03, 0.03, 0.006), D, -0.03, 0.1, -0.255);
   // tube stock + butt plate
   const rod = lathe([[0, -0.05], [0.01, -0.05], [0.01, -0.27], [0, -0.27]], 10);
   for (const y of [0.06, 0.0]) at(rod, S, 0, y);

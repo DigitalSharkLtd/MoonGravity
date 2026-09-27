@@ -147,6 +147,9 @@ export class Game {
     const team = this.modeInfo.teams ? 0 : -1;
     this.local = this.addFighter(opts.name, team, opts.hero, 'local', 'local');
     this.local.applyBuild(this.builds[opts.hero] ?? '');
+    // attachModel ran before `local` was set: apply the first-person body mode now
+    this.local.model?.setFirstPerson(!this.thirdPerson);
+    this.refreshHighlights();
   }
 
   /** fighters that are real players or bots (not summoned servitors) */

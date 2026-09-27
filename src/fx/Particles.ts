@@ -182,6 +182,9 @@ export class ParticleSystem {
           gl_Position = projectionMatrix * mv;
           vUv = vec2((uv.x + sprite) / 5.0, uv.y);
           vColor = aColor;
+          // near-camera fade: a sprite that grows around the eye must not become a wall
+          float depth = -mv.z;
+          vColor.a *= smoothstep(0.25, 0.9 + size * 1.2, depth);
         }`,
       fragmentShader: /* glsl */ `
         uniform sampler2D tAtlas; varying vec2 vUv; varying vec4 vColor;

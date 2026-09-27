@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { toonMat, glowMat } from '../render/Toon';
 import { WeaponId, WEAPONS } from './WeaponDefs';
 import { hazardTex } from '../render/Textures';
@@ -15,14 +16,27 @@ const gun = () => toonMat(0x2e3340, { spec: 0.9, rim: 0.5 });
 const white = () => toonMat(0xe6e4de, { spec: 0.6, rim: 0.35 });
 const gray = () => toonMat(0x7b8292, { spec: 0.8, rim: 0.4 });
 
+/** bevelled boxes: soft specular edges read as machined parts instead of CG cubes */
+const boxCache = new Map<string, THREE.BufferGeometry>();
+function roundedBox(w: number, h: number, d: number): THREE.BufferGeometry {
+  const key = `${w.toFixed(3)}|${h.toFixed(3)}|${d.toFixed(3)}`;
+  let geo = boxCache.get(key);
+  if (!geo) {
+    const r = Math.min(0.018, Math.min(w, h, d) * 0.24);
+    geo = new RoundedBoxGeometry(w, h, d, 2, r);
+    boxCache.set(key, geo);
+  }
+  return geo;
+}
+
 function box(g: THREE.Object3D, w: number, h: number, d: number, x: number, y: number, z: number, m: THREE.Material, rx = 0): THREE.Mesh {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+  const mesh = new THREE.Mesh(roundedBox(w, h, d), m);
   mesh.position.set(x, y, z);
   mesh.rotation.x = rx;
   g.add(mesh);
   return mesh;
 }
-function cylZ(g: THREE.Object3D, r: number, len: number, x: number, y: number, z: number, m: THREE.Material, seg = 12, rTop?: number): THREE.Mesh {
+function cylZ(g: THREE.Object3D, r: number, len: number, x: number, y: number, z: number, m: THREE.Material, seg = 16, rTop?: number): THREE.Mesh {
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rTop ?? r, r, len, seg), m);
   mesh.rotation.x = Math.PI / 2;
   mesh.position.set(x, y, z);

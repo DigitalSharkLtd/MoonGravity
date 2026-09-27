@@ -6,6 +6,7 @@ import { buildWeaponModel, WeaponModel } from '../weapons/WeaponModels';
 import type { HeroId, WeaponId } from '../game/Types';
 import { HEROES } from '../game/Types';
 import { LAYER_NO_OUTLINE } from '../render/Pipeline';
+import { buildSuit } from './SuitMesh';
 
 /** meshes on this layer cast sun shadows but are not drawn by the main camera */
 export const LAYER_SHADOW_ONLY = 5;
@@ -62,6 +63,78 @@ interface Part {
   bone: BoneName;
   geo: THREE.BufferGeometry;
   mat: MatKind;
+  /** geometry already in bind-pose model space with its own skin weights */
+  pre?: boolean;
+}
+
+/** foregrip distance (m, along the barrel from the grip) for the support hand */
+const FOREGRIP: Partial<Record<WeaponId, number>> = { pulse: 0.3, rail: 0.36, plasma: 0.25, glauncher: 0.27, sealer: 0.24, twinarc: 0, nuke: 0.12, singularity: 0.3, helios: 0.3, riveter: 0.27, burst: 0.3 };
+
+const _ikS = new THREE.Vector3();
+const _ikE = new THREE.Vector3();
+const _ikT = new THREE.Vector3();
+const _ikD = new THREE.Vector3();
+const _ikP = new THREE.Vector3();
+const _ikX = new THREE.Vector3();
+const _ikY = new THREE.Vector3();
+const _ikZ = new THREE.Vector3();
+const _ikM = new THREE.Matrix4();
+const _ikQ = new THREE.Quaternion();
+const _ikQ2 = new THREE.Quaternion();
+const _ikV = new THREE.Vector3();
+
+/** world quaternion of an object (ignores scale) */
+function worldQuat(o: THREE.Object3D, out: THREE.Quaternion): THREE.Quaternion {
+  o.matrixWorld.decompose(_ikV, out, _ikP);
+  return out;
+}
+
+/**
+ * Analytic two-bone IK (shoulder → elbow → wrist). Bones hang along their local -Y and the
+ * lower bone bends about its local +X (toward -Z), like the FK rig. `pole` pulls the elbow.
+ * Result is slerped over the current (FK) pose by `w`.
+ */
+function solveTwoBone(upper: THREE.Bone, lower: THREE.Bone, target: THREE.Vector3, pole: THREE.Vector3, l1: number, l2: number, w: number): void {
+  if (w <= 0.001) return;
+  upper.getWorldPosition(_ikS);
+  _ikD.copy(target).sub(_ikS);
+  const dist = THREE.MathUtils.clamp(_ikD.length(), Math.abs(l1 - l2) + 1e-3, (l1 + l2) * 0.999);
+  _ikD.normalize();
+  // bend direction: pole projected on the plane perpendicular to the reach
+  _ikP.copy(pole).sub(_ikS);
+  _ikP.addScaledVector(_ikD, -_ikP.dot(_ikD));
+  if (_ikP.lengthSq() < 1e-8) _ikP.set(0, -1, 0).addScaledVector(_ikD, _ikD.y);
+  _ikP.normalize();
+  const a = (l1 * l1 + dist * dist - l2 * l2) / (2 * dist);
+  const h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  _ikE.copy(_ikS).addScaledVector(_ikD, a).addScaledVector(_ikP, h);
+  _ikT.copy(_ikS).addScaledVector(_ikD, dist);
+  // upper frame: +Y from elbow back to shoulder, +Z toward the bend side, X = Y × Z
+  _ikY.copy(_ikS).sub(_ikE).normalize();
+  _ikZ.copy(_ikP).addScaledVector(_ikY, -_ikP.dot(_ikY)).normalize();
+  _ikX.crossVectors(_ikY, _ikZ).normalize();
+  _ikZ.crossVectors(_ikX, _ikY);
+  _ikM.makeBasis(_ikX, _ikY, _ikZ);
+  _ikQ.setFromRotationMatrix(_ikM);
+  worldQuat(upper.parent!, _ikQ2).invert();
+  _ikQ.premultiply(_ikQ2);
+  upper.quaternion.slerp(_ikQ, w);
+  upper.updateMatrixWorld(true);
+  // lower: pure hinge about local X
+  const bend = Math.acos(THREE.MathUtils.clamp((l1 * l1 + l2 * l2 - dist * dist) / (2 * l1 * l2), -1, 1));
+  const ang = Math.PI - bend;
+  _ikQ.setFromAxisAngle(_ikV.set(1, 0, 0), ang);
+  lower.quaternion.slerp(_ikQ, w);
+  lower.updateMatrixWorld(true);
+}
+
+/** set a bone's world orientation (slerped by w) */
+function setWorldQuat(bone: THREE.Object3D, q: THREE.Quaternion, w: number): void {
+  if (w <= 0.001) return;
+  worldQuat(bone.parent!, _ikQ2).invert();
+  _ikQ.copy(q).premultiply(_ikQ2);
+  bone.quaternion.slerp(_ikQ, w);
+  bone.updateMatrixWorld(true);
 }
 
 const V3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -80,7 +153,7 @@ function mats(hero: ModelVariant, main: number, accent: number, visor: number): 
     dark: pbr('h-dark|' + key, { color: 0x2a2e38, set: brushedSet(24), repeat: 2, roughness: 1.3, metalness: 0.6, style: { rim: 0.3 } }),
     metal: pbr('h-metal|' + key, { color: 0xb8bec8, set: brushedSet(25), repeat: 2, roughness: 1, metalness: 1, style: { rim: 0.3 } }),
     visor: pbr('h-visor|' + key, { color: visor, roughness: 0.04, metalness: 1, envMapIntensity: 1.6, physical: { clearcoat: 1, clearcoatRoughness: 0.02 }, style: { rim: 0.9, rimColor: 0xffffff } }),
-    glow: glowMat(accent, 3.2),
+    glow: glowMat(accent, 2.3),
   };
 }
 
@@ -139,6 +212,10 @@ export class HeroModel {
   private grappleK = 0;
   private deflectK = 0;
   private shieldMesh: THREE.Mesh | null = null;
+  private armLen: [number, number] = [0.33, 0.3];
+  private reloadK = 0;
+  private castK = 0;
+  private gunQ = new THREE.Quaternion();
 
   constructor(hero: HeroId, teamColor: number | null, variant?: 'servitor') {
     this.hero = hero;
@@ -170,14 +247,31 @@ export class HeroModel {
     const parts: Part[] = [];
     const add = (bone: BoneName, mat: MatKind, geo: THREE.BufferGeometry) => parts.push({ bone, mat, geo });
     buildBody(this.variant, add);
+    if (this.variant !== 'servitor') {
+      const bulk = hero === 'reactor' ? 1.22 : hero === 'forge' ? 1.1 : hero === 'phantom' || hero === 'needle' || hero === 'blade' ? 0.92 : 1;
+      const suit = buildSuit(
+        { pos: (n) => this.bones.get(n as BoneName)!.getWorldPosition(new THREE.Vector3()), index: (n) => boneList.indexOf(this.bones.get(n as BoneName)!) },
+        { bulk, scale: this.scale, folds: hero === 'phantom' || hero === 'blade' ? 0.3 : 1 },
+      );
+      parts.push({ bone: 'root', mat: 'suit', geo: suit, pre: true });
+    }
+    this.armLen = [0.33 * this.scale, 0.3 * this.scale];
 
     // group by material, bake into bind pose, create skinned meshes
     const byMat = new Map<MatKind, THREE.BufferGeometry[]>();
     for (const p of parts) {
+      if (p.pre) {
+        let list = byMat.get(p.mat);
+        if (!list) byMat.set(p.mat, (list = []));
+        list.push(p.geo.index ? p.geo.toNonIndexed() : p.geo);
+        continue;
+      }
       const bone = this.bones.get(p.bone)!;
       const bi = boneList.indexOf(bone);
       // bake into the skeleton's bind space (root bone has no parent here, so matrixWorld = model space)
       const m = bone.matrixWorld.clone();
+      // heroic proportions: helmets/head gear ~15% smaller than the kit authoring scale
+      if (p.bone === 'head' && this.variant !== 'servitor') m.multiply(new THREE.Matrix4().makeScale(0.86, 0.86, 0.86));
       let g = p.geo.index ? p.geo.toNonIndexed() : p.geo;
       g.applyMatrix4(m);
       for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') g.deleteAttribute(k);
@@ -241,7 +335,8 @@ export class HeroModel {
     }
     // cracked visor overlay (shown when the suit is breached)
     const crack = new THREE.Mesh(new THREE.SphereGeometry(0.278, 20, 12, Math.PI * 1.13, Math.PI * 0.74, Math.PI * 0.3, Math.PI * 0.42), crackMaterial());
-    crack.position.set(0, 0.2, -0.02);
+    crack.position.set(0, 0.2 * 0.86, -0.02);
+    crack.scale.setScalar(0.86);
     crack.visible = false;
     this.bones.get('head')!.add(crack);
     this.visorCrack = crack;
@@ -267,8 +362,8 @@ export class HeroModel {
       fragmentShader: `uniform vec3 uColor; uniform float uAmt; uniform float uTime; varying vec3 vN; varying vec3 vV; varying vec3 vP;
         void main(){ float f = pow(1.0 - abs(dot(vN, vV)), 2.2);
           float hex = abs(sin(vP.y*18.0 + uTime*3.0) * sin(atan(vP.z, vP.x)*9.0));
-          float a = (f*0.85 + smoothstep(0.92,1.0,hex)*0.25) * uAmt;
-          gl_FragColor = vec4(uColor*2.2, a); }`,
+          float a = (f*0.55 + smoothstep(0.94,1.0,hex)*0.12) * uAmt;
+          gl_FragColor = vec4(uColor*1.4, a); }`,
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -364,7 +459,7 @@ export class HeroModel {
       const sh = this.ensureShield();
       sh.visible = !this.fp && this.cloak < 0.5;
       const u = (sh.material as THREE.ShaderMaterial).uniforms;
-      u.uAmt.value = 0.35 + s.shield * 0.65;
+      u.uAmt.value = 0.25 + s.shield * 0.45;
       u.uTime.value = time;
     } else if (this.shieldMesh) this.shieldMesh.visible = false;
 
@@ -585,8 +680,80 @@ export class HeroModel {
       B('armL').rotation.x = THREE.MathUtils.lerp(B('armL').rotation.x, 0.6, tuck);
       B('armR').rotation.x = THREE.MathUtils.lerp(B('armR').rotation.x, 0.9, tuck);
     }
+    this.armIK(dt, s, stance);
     if (this.weapon?.spin) this.weapon.spin.rotation.z += dt * (s.firing ? 14 : 1);
     this.updateWorld();
+  }
+
+  /**
+   * Weapon handling layer: both hands on the gun via two-bone IK (grip + foregrip), gun held
+   * along the view pitch at the shoulder. Overridden (weighted out) by melee swings, rolls,
+   * casts (left hand), grapple (left hand) and the katana (FK stance).
+   */
+  private armIK(dt: number, s: AnimState, stance: string): void {
+    const id = this.weaponId;
+    if (!id || id === 'blade' || !s.alive) return;
+    const B = (n: BoneName) => this.bones.get(n)!;
+    this.reloadK += ((s.reloading ? 1 : 0) - this.reloadK) * Math.min(1, dt * 10);
+    this.castK += ((s.ability > 0.05 || this.grappleK > 0.05 ? 1 : 0) - this.castK) * Math.min(1, dt * 12);
+    const swing = this.swingT > 0 ? Math.sin(Math.min(1, (1 - this.swingT) * 1.25) * Math.PI) : 0;
+    const wR = (stance === 'roll' ? 0 : 1) * (1 - swing);
+    if (wR <= 0.001) return;
+    const wL = wR * (1 - this.castK) * (1 - this.deflectK);
+    this.root.updateMatrixWorld(true);
+    const sc = this.scale;
+    // aim frame in the model group's space → world
+    const p = s.pitch;
+    const aim = new THREE.Vector3(0, Math.sin(p), -Math.cos(p));
+    const right = new THREE.Vector3(1, 0, 0);
+    const upv = new THREE.Vector3().crossVectors(right, aim).normalize();
+    const chest = B('chest').getWorldPosition(new THREE.Vector3());
+    this.root.worldToLocal(chest);
+    const heavy = id === 'nuke';
+    const twin = id === 'twinarc';
+    const kick = this.fireKick;
+    const grip = chest
+      .clone()
+      .addScaledVector(right, (heavy ? 0.2 : twin ? 0.22 : 0.15) * sc)
+      .addScaledVector(upv, (heavy ? 0.16 : -0.05 + (stance === 'prone' ? 0.04 : 0)) * sc)
+      .addScaledVector(aim, (heavy ? 0.06 : twin ? 0.42 : 0.3) * sc - kick * 0.05);
+    // gun orientation: forward = aim, up = upv (+ recoil pitch)
+    const gunFwd = aim.clone().applyAxisAngle(right, kick * 0.12);
+    const gunUp = new THREE.Vector3().crossVectors(right, gunFwd).normalize();
+    // hand frame: x = right, y = -forward, z = -up
+    _ikM.makeBasis(right, gunFwd.clone().negate(), gunUp.clone().negate());
+    const handQ = new THREE.Quaternion().setFromRotationMatrix(_ikM);
+    const groupQ = worldQuat(this.root, new THREE.Quaternion());
+    handQ.premultiply(groupQ);
+    this.gunQ.copy(handQ);
+    const toWorld = (v: THREE.Vector3) => v.applyMatrix4(this.root.matrixWorld);
+    // wrist sits behind the grip (weapon holder offset on the hand bone)
+    const wristR = grip.clone().addScaledVector(gunFwd, -0.06 * sc).addScaledVector(gunUp, 0.02 * sc);
+    const poleR = chest.clone().addScaledVector(right, 0.9).addScaledVector(upv, -1).addScaledVector(aim, -0.3);
+    const [l1, l2] = this.armLen;
+    solveTwoBone(B('armR'), B('foreR'), toWorld(wristR), toWorld(poleR), l1, l2, wR);
+    setWorldQuat(B('handR'), handQ, wR);
+    if (wL <= 0.001) return;
+    let wristL: THREE.Vector3;
+    let qL: THREE.Quaternion;
+    if (twin) {
+      const gripL = grip.clone().addScaledVector(right, -0.44 * sc);
+      wristL = gripL.addScaledVector(gunFwd, -0.06 * sc).addScaledVector(gunUp, 0.02 * sc);
+      qL = handQ;
+    } else {
+      const fg = FOREGRIP[id] ?? 0.28;
+      wristL = grip.clone().addScaledVector(gunFwd, fg * sc - 0.05 * sc).addScaledVector(gunUp, -0.035 * sc).addScaledVector(right, -0.04 * sc);
+      // reload: support hand drops to the magazine and works it
+      if (this.reloadK > 0.01) {
+        const mag = grip.clone().addScaledVector(gunFwd, 0.08 * sc).addScaledVector(gunUp, (-0.16 + Math.sin(performance.now() * 0.012) * 0.03) * sc);
+        wristL.lerp(mag, this.reloadK);
+      }
+      // palm under the handguard: hand frame rolled inward around the barrel
+      qL = handQ.clone().multiply(_ikQ2.setFromAxisAngle(_ikV.set(0, 1, 0), 0.9));
+    }
+    const poleL = chest.clone().addScaledVector(right, -0.9).addScaledVector(upv, -1).addScaledVector(aim, -0.2);
+    solveTwoBone(B('armL'), B('foreL'), toWorld(wristL), toWorld(poleL), l1, l2, wL);
+    setWorldQuat(B('handL'), qL, wL);
   }
 
   private updateWorld(): void {
@@ -693,11 +860,15 @@ function buildBody(hero: ModelVariant, add: Add): void {
   const E = (x = 0, y = 0, z = 0) => new THREE.Euler(x, y, z);
   const bulk = hero === 'reactor' ? 1.25 : hero === 'forge' ? 1.1 : hero === 'servitor' ? 0.85 : hero === 'phantom' || hero === 'needle' || hero === 'blade' ? 0.92 : 1;
 
-  // --- pelvis & torso (fabric suit) ---
-  add('hips', 'suit', tx(new THREE.SphereGeometry(0.22, 18, 12), V3(0, 0.02, 0), E(), V3(1.3 * bulk, 0.85, 1.0 * bulk)));
-  add('hips', 'dark', tx(new THREE.TorusGeometry(0.25 * bulk, 0.045, 8, 24), V3(0, 0.1, 0), E(Math.PI / 2)));
-  add('spine', 'suit', tx(new THREE.CapsuleGeometry(0.21 * bulk, 0.1, 6, 14), V3(0, 0.05, 0), E(), V3(1.2, 1, 0.9)));
-  add('chest', 'suit', tx(lathe([[0.001, -0.12], [0.26, -0.1], [0.31, 0.05], [0.3, 0.2], [0.22, 0.3], [0.16, 0.34], [0.001, 0.35]], 22), V3(0, 0, 0), E(), V3(1.12 * bulk, 1, 0.84 * bulk)));
+  // --- pelvis & torso: the continuous suit comes from SuitMesh (servitor keeps primitives) ---
+  const robot = hero === 'servitor';
+  if (robot) {
+    add('hips', 'suit', tx(new THREE.SphereGeometry(0.22, 18, 12), V3(0, 0.02, 0), E(), V3(1.3 * bulk, 0.85, 1.0 * bulk)));
+    add('spine', 'suit', tx(new THREE.CapsuleGeometry(0.21 * bulk, 0.1, 6, 14), V3(0, 0.05, 0), E(), V3(1.2, 1, 0.9)));
+    add('chest', 'suit', tx(lathe([[0.001, -0.12], [0.26, -0.1], [0.31, 0.05], [0.3, 0.2], [0.22, 0.3], [0.16, 0.34], [0.001, 0.35]], 22), V3(0, 0, 0), E(), V3(1.12 * bulk, 1, 0.84 * bulk)));
+  }
+  // utility belt, helmet neck ring (hard parts)
+  add('hips', 'dark', tx(new THREE.TorusGeometry(0.245 * bulk, 0.04, 8, 28), V3(0, 0.02, 0), E(Math.PI / 2), V3(1, 0.72, 1)));
   add('neck', 'dark', tx(new THREE.TorusGeometry(0.17, 0.05, 8, 22), V3(0, 0.0, 0), E(Math.PI / 2)));
   add('neck', 'metal', tx(new THREE.CylinderGeometry(0.19, 0.2, 0.06, 22), V3(0, -0.03, 0)));
 
@@ -706,21 +877,29 @@ function buildBody(hero: ModelVariant, add: Add): void {
     const arm = ('arm' + s) as BoneName;
     const fore = ('fore' + s) as BoneName;
     const hand = ('hand' + s) as BoneName;
-    add(arm, 'suit', tx(new THREE.CapsuleGeometry(0.1 * bulk, 0.2, 5, 12), V3(0, -0.17, 0)));
-    add(arm, 'dark', tx(new THREE.TorusGeometry(0.105 * bulk, 0.02, 6, 16), V3(0, -0.3, 0), E(Math.PI / 2)));
-    add(fore, 'suit', tx(new THREE.CapsuleGeometry(0.092 * bulk, 0.17, 5, 12), V3(0, -0.14, 0)));
-    add(fore, 'dark', tx(new THREE.CylinderGeometry(0.105 * bulk, 0.1 * bulk, 0.08, 14), V3(0, -0.26, 0)));
-    add(hand, 'dark', tx(new THREE.SphereGeometry(0.085, 12, 10), V3(0, -0.03, -0.01), E(), V3(1, 1.1, 1.25)));
-    add(hand, 'dark', tx(new THREE.BoxGeometry(0.1, 0.07, 0.08), V3(0, -0.08, -0.03)));
+    if (robot) {
+      add(arm, 'suit', tx(new THREE.CapsuleGeometry(0.1 * bulk, 0.2, 5, 12), V3(0, -0.17, 0)));
+      add(fore, 'suit', tx(new THREE.CapsuleGeometry(0.092 * bulk, 0.17, 5, 12), V3(0, -0.14, 0)));
+    }
+    // glove cuff (hard wrist bearing) + glove: palm, curled fingers, thumb
+    const sgn = s === 'L' ? -1 : 1;
+    add(fore, 'dark', tx(new THREE.CylinderGeometry(0.088 * bulk, 0.084 * bulk, 0.07, 16), V3(0, -0.27, 0)));
+    add(fore, 'metal', tx(new THREE.TorusGeometry(0.086 * bulk, 0.012, 6, 18), V3(0, -0.235, 0), E(Math.PI / 2)));
+    add(hand, 'dark', tx(new THREE.SphereGeometry(0.06, 14, 10), V3(0, -0.055, -0.005), E(), V3(1.05, 1.15, 0.72)));
+    add(hand, 'dark', tx(new THREE.CapsuleGeometry(0.03, 0.07, 4, 10), V3(0, -0.115, -0.022), E(0.5, 0, Math.PI / 2), V3(1, 1, 1.05)));
+    add(hand, 'dark', tx(new THREE.CapsuleGeometry(0.02, 0.05, 4, 8), V3(-sgn * 0.045, -0.06, -0.03), E(0.4, 0, -sgn * 0.5)));
   }
   // --- legs ---
   for (const s of ['L', 'R'] as const) {
     const leg = ('leg' + s) as BoneName;
     const shin = ('shin' + s) as BoneName;
     const foot = ('foot' + s) as BoneName;
-    add(leg, 'suit', tx(new THREE.CapsuleGeometry(0.125 * bulk, 0.24, 5, 12), V3(0, -0.21, 0)));
-    add(shin, 'suit', tx(new THREE.CapsuleGeometry(0.11 * bulk, 0.2, 5, 12), V3(0, -0.19, 0)));
-    add(shin, 'dark', tx(new THREE.CylinderGeometry(0.125 * bulk, 0.12 * bulk, 0.1, 14), V3(0, -0.34, 0)));
+    if (robot) {
+      add(leg, 'suit', tx(new THREE.CapsuleGeometry(0.125 * bulk, 0.24, 5, 12), V3(0, -0.21, 0)));
+      add(shin, 'suit', tx(new THREE.CapsuleGeometry(0.11 * bulk, 0.2, 5, 12), V3(0, -0.19, 0)));
+    }
+    // boot collar
+    add(shin, 'dark', tx(new THREE.CylinderGeometry(0.108 * bulk, 0.104 * bulk, 0.1, 16), V3(0, -0.35, 0)));
     // boot
     add(foot, 'dark', tx(new THREE.BoxGeometry(0.2 * bulk, 0.14, 0.34), V3(0, -0.02, -0.05)));
     add(foot, 'metal', tx(new THREE.BoxGeometry(0.21 * bulk, 0.04, 0.35), V3(0, -0.075, -0.05)));

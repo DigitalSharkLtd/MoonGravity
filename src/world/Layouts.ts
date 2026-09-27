@@ -23,12 +23,14 @@ export interface PickupSpot {
   /** on an upper floor / roof: pos.y is authoritative (not snapped to the terrain) */
   elevated?: boolean;
 }
+/** Sniper spot (a plain Vector3; `elevated` marks roofs / upper floors / towers, y is explicit). */
+export type PerchSpot = THREE.Vector3 & { elevated?: boolean };
 export interface LayoutInfo {
   spawns: SpawnPoint[];
   controlPoints: ControlPoint[];
   pickups: PickupSpot[];
   podZones: THREE.Vector3[];
-  perches: THREE.Vector3[];
+  perches: PerchSpot[];
   baseCenters: THREE.Vector3[];
   /** circles that props should avoid */
   keepOut: { x: number; z: number; r: number }[];
@@ -69,7 +71,10 @@ export function buildLayout(b: StructureBuilder, def: MapDef, td: TerrainData): 
     if (!p.elevated) p.pos.y = b.ground(p.pos.x, p.pos.z);
     p.pos.copy(nudgeFree(b, p.pos));
   }
-  for (const p of info.perches) p.copy(nudgeFree(b, p));
+  for (const p of info.perches) {
+    p.copy(nudgeFree(b, p));
+    if (p.y - b.ground(p.x, p.z) > 1.5) p.elevated = true;
+  }
   return info;
 }
 

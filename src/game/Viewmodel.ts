@@ -5,6 +5,20 @@ import { HEROES } from './Types';
 import { stylize } from '../render/Materials';
 import { fabricSet } from '../render/TextureGen';
 
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _c = new THREE.Vector3();
+const _d = new THREE.Vector3();
+const _e = new THREE.Vector3();
+const _f = new THREE.Vector3();
+const _g = new THREE.Vector3();
+const _h = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
+const _q3 = new THREE.Quaternion();
+/** foregrip distance along the barrel for the first-person support hand */
+const FOREGRIP_VM: Partial<Record<WeaponId, number>> = { pulse: 0.26, rail: 0.34, plasma: 0.22, glauncher: 0.24, sealer: 0.2, nuke: 0.1, singularity: 0.26, helios: 0.26, riveter: 0.24, burst: 0.26 };
+
 /**
  * First-person hands + weapon, drawn in an overlay scene (own FOV & depth) so it never clips.
  * Materials are private (not in the CSM registry): the overlay scene has a single simple sun light.
@@ -35,15 +49,15 @@ export class Viewmodel {
     this.scene.add(this.camera);
     this.camera.add(this.root);
     this.root.add(this.gun, this.armL, this.armR);
-    this.sun = new THREE.DirectionalLight(0xfff0dc, 3.2);
+    this.sun = new THREE.DirectionalLight(0xfff0dc, 2.3);
     this.sun.position.set(1, 1, 0.5);
-    this.hemi = new THREE.HemisphereLight(0x8090d0, 0x7b6a58, 0.9);
+    this.hemi = new THREE.HemisphereLight(0x8090d0, 0x7b6a58, 0.6);
     this.scene.add(this.sun, this.hemi);
   }
 
   setEnvironment(env: THREE.Texture | null, sunDirView: THREE.Vector3): void {
     this.scene.environment = env;
-    this.scene.environmentIntensity = 0.7;
+    this.scene.environmentIntensity = 0.5;
     this.sun.position.copy(sunDirView);
   }
 
@@ -82,7 +96,7 @@ export class Viewmodel {
       [this.armL, -1],
       [this.armR, 1],
     ] as const) {
-      const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.34, 6, 12), sleeve);
+      const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.056, 0.3, 6, 14), sleeve);
       fore.rotation.x = Math.PI / 2;
       fore.position.z = 0.2;
       const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.066, 0.066, 0.06, 14), cuffM);
@@ -206,37 +220,35 @@ export class Viewmodel {
     }
     if (this.weapon?.spin) this.weapon.spin.rotation.z += dt * (s.charge > 0 ? 20 * s.charge : 1);
     for (const g of this.weapon?.glows ?? []) g.scale.setScalar(1 + s.charge * 0.25);
-    // hands follow the gun
+    // hands on the gun: grip (right) and foregrip (left); forearms angle down toward the screen
+    // corners so the sleeves never sweep in front of the eye
+    const gq = this.gun.quaternion;
     const gp = this.gun.position;
-    this.armR.position.set(gp.x + 0.02, gp.y - 0.06, gp.z + 0.12);
-    this.armR.rotation.set(this.gun.rotation.x - 0.1, this.gun.rotation.y, this.gun.rotation.z);
+    const fwd = _a.set(0, 0, -1).applyQuaternion(gq);
+    const gup = _b.set(0, 1, 0).applyQuaternion(gq);
     const twin = this.weaponId === 'twinarc';
-    this.armL.position.set(twin ? gp.x - 0.18 : gp.x - 0.06, gp.y - (twin ? 0.06 : 0.02), gp.z + (twin ? 0.12 : -0.14));
-    this.armL.rotation.set(this.gun.rotation.x - 0.05, 0.4 - (twin ? 0.4 : 0), 0.5 - (twin ? 0.5 : 0));
-    if (this.castT > 0) {
-      this.armL.position.y += this.castT * 0.08;
-      this.armL.position.x -= this.castT * 0.08;
-      this.armL.rotation.x -= this.castT * 0.8;
-    }
-    if (reloadDip > 0) {
-      this.armL.position.y -= reloadDip * 0.1;
-      this.armL.rotation.x += reloadDip * 0.6;
-    }
-    if (blade) {
-      // two-handed grip right under the right hand
-      this.armL.position.set(gp.x - 0.03, gp.y - 0.1, gp.z + 0.16);
-      this.armL.rotation.copy(this.gun.rotation);
-    }
-    if (this.grappleK > 0.01) {
-      // left wrist launcher raised toward the anchor
-      const k = this.grappleK;
-      this.armL.position.lerp(new THREE.Vector3(-0.16, -0.12, -0.36), k);
-      this.armL.rotation.set(THREE.MathUtils.lerp(this.armL.rotation.x, 0.08, k), THREE.MathUtils.lerp(this.armL.rotation.y, 0.1, k), THREE.MathUtils.lerp(this.armL.rotation.z, 0, k));
-    } else if (!blade && sw > 0) {
-      const k = Math.sin((1 - sw) * Math.PI);
-      this.armL.position.z -= k * 0.2;
-      this.armL.position.x += k * 0.05;
-    }
+    const fg = blade ? -0.07 : twin ? 0 : FOREGRIP_VM[this.weaponId ?? 'pulse'] ?? 0.26;
+    const gripR = _c.copy(gp).addScaledVector(gup, -0.06).addScaledVector(fwd, 0.02);
+    this.aimArm(this.armR, gripR, _d.set(0.32, -0.62, 0.72), gq);
+    let gripL: THREE.Vector3;
+    if (twin) gripL = _e.copy(gripR).add(_f.set(-0.36, 0, 0));
+    else gripL = _e.copy(gp).addScaledVector(fwd, fg).addScaledVector(gup, blade ? -0.08 : -0.045).add(_f.set(-0.01, 0, 0));
+    if (this.castT > 0) gripL.add(_f.set(-0.08 * this.castT, 0.1 * this.castT, 0.05 * this.castT));
+    if (reloadDip > 0) gripL.addScaledVector(gup, -0.12 * reloadDip).addScaledVector(fwd, -0.12 * reloadDip);
+    if (!blade && sw > 0) gripL.z -= Math.sin((1 - sw) * Math.PI) * 0.18;
+    if (this.grappleK > 0.01) gripL.lerp(_f.set(-0.17, -0.1, -0.36), this.grappleK);
+    this.aimArm(this.armL, gripL, _d.set(twin ? -0.32 : -0.42, -0.6, 0.68), gq);
+  }
+
+  /** place a forearm: hand at `at`, sleeve running along `back` (camera space), glove rolled like the gun */
+  private aimArm(arm: THREE.Group, at: THREE.Vector3, back: THREE.Vector3, gunQ: THREE.Quaternion): void {
+    arm.position.copy(at);
+    back.normalize();
+    // +Z of the arm group = toward the elbow
+    const q = _q.setFromUnitVectors(_g.set(0, 0, 1), back);
+    // keep the glove's roll close to the gun's
+    const roll = _q2.setFromUnitVectors(_g.set(0, 1, 0).applyQuaternion(q), _h.set(0, 1, 0).applyQuaternion(gunQ));
+    arm.quaternion.copy(q).premultiply(roll.slerp(_q3.identity(), 0.5));
   }
 
   dispose(): void {

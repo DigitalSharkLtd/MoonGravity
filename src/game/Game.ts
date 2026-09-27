@@ -61,7 +61,7 @@ const SERVITOR_DEF: HeroDef = {
 };
 const SERVITOR_TOUGH_DEF: HeroDef = { ...SERVITOR_DEF, health: 190, suit: 90 };
 const GRAPPLE_RANGE = 42;
-const GRAPPLE_CD = 7;
+const GRAPPLE_CD = 18; // (was 7: the hook dominated movement)
 const BOT_NAMES = ['Орбита', 'Кратер', 'Селен', 'Апогей', 'Перигей', 'Реголит', 'Тихо', 'Коперник', 'Кеплер', 'Аристарх', 'Гриммальди', 'Лангрен', 'Шеклтон', 'Армстронг', 'Гагарин', 'Терешкова'];
 
 /**
@@ -1080,7 +1080,7 @@ export class Game {
       const end = eye.clone().addScaledVector(dir, hit ? hit.t : GRAPPLE_RANGE);
       this.effects.beam(from, end, 0xbfefff, 0.02, 0.25);
       this.sound('grapple_fire', f, 0.7);
-      f.grappleCd = 1;
+      f.grappleCd = 2.5; // missed shot
       return;
     }
     b.startGrapple(hit.point, hit.normal, hit.metal);
@@ -1465,9 +1465,10 @@ export class Game {
     s.onWall = b.onWall;
     s.hero = me.hero;
     const keys: ('ability1' | 'ability2')[] = ['ability1', 'ability2'];
-    s.abilities = me.abilities.map((a, i) => ({ key: keys[i], id: a.id, cooldown: a.charges >= a.maxCharges ? 0 : a.cooldown / a.maxCooldown, charges: a.charges, maxCharges: a.maxCharges, active: a.active > 0 }));
+    // cooldowns go to the HUD in seconds (+ the real full cooldown incl. build modifiers); the HUD used to get a 0..1 fraction and showed it as seconds
+    s.abilities = me.abilities.map((a, i) => ({ key: keys[i], id: a.id, cooldown: a.charges >= a.maxCharges ? 0 : Math.max(0, a.cooldown), maxCooldown: a.maxCooldown, charges: a.charges, maxCharges: a.maxCharges, active: a.active > 0 }));
     s.ult = { id: me.ult.id, charge: me.ultCharge / me.ultCostEff, ready: me.ultReady, active: me.ult.active > 0 || me.swarmT > 0 || me.overchargeT > 0 || me.moonbladeT > 0 };
-    s.grapple = { cooldown: me.grappleCd > 0 ? me.grappleCd / GRAPPLE_CD : 0, ready: me.grappleCd <= 0, active: !!b.grapple };
+    s.grapple = { cooldown: Math.max(0, me.grappleCd), maxCooldown: GRAPPLE_CD, ready: me.grappleCd <= 0, active: !!b.grapple };
     s.stance = b.stance;
     s.forceField = me.shieldHp > 0 ? Math.min(1, me.shieldHp / 260) : 0;
     s.passive = this.passiveHud(me);

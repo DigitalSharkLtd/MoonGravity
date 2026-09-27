@@ -1195,6 +1195,7 @@ export class Hud {
       a.cdQ = -1;
       a.charges = -1;
     }
+    if (st.maxCooldown) a.maxCd = Math.max(0.1, st.maxCooldown); // real cooldown incl. build modifiers
     const frac = clamp(st.cooldown / a.maxCd, 0, 1);
     const q = Math.round(frac * 200) / 200;
     if (q !== a.cdQ) {
@@ -1249,7 +1250,7 @@ export class Hud {
       this.grapple.style.display = gOn ? '' : 'none';
     }
     if (g) {
-      const max = 8;
+      const max = g.maxCooldown || 8;
       const q = g.ready ? 0 : Math.round(clamp(g.cooldown / max, 0, 1) * 100) / 100;
       if (q !== this.grappleQ) {
         this.grappleQ = q;

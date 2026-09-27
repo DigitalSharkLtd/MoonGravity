@@ -571,7 +571,8 @@ export interface HudState {
   onWall: boolean; // walking on wall/ceiling
   // hero & abilities
   hero: HeroId;
-  abilities: { key: 'ability1' | 'ability2'; id: AbilityId; cooldown: number; charges: number; maxCharges: number; active: boolean }[];
+  /** cooldown / maxCooldown in seconds */
+  abilities: { key: 'ability1' | 'ability2'; id: AbilityId; cooldown: number; maxCooldown?: number; charges: number; maxCharges: number; active: boolean }[];
   ult: { id: AbilityId; charge: number; ready: boolean; active: boolean };
   // weapons
   weaponId: WeaponId;
@@ -592,7 +593,8 @@ export interface HudState {
   cloaked: boolean;
   invulnerable: boolean;
   /** universal gadgets / stance (optional for older HUDs) */
-  grapple?: { cooldown: number; ready: boolean; active: boolean };
+  /** cooldown / maxCooldown in seconds */
+  grapple?: { cooldown: number; maxCooldown?: number; ready: boolean; active: boolean };
   stance?: 'stand' | 'crouch' | 'prone' | 'slide' | 'roll';
   summons?: { kind: 'servitor' | 'turret' | 'drone' | 'barricade'; hp: number }[];
   forceField?: number; // 0..1 extra shield on top of health

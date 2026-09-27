@@ -199,7 +199,7 @@ function backdropCamera(dt: number): void {
     backdropHero.root.position.copy(p);
     backdropHero.root.lookAt(camera.position.x, p.y, camera.position.z);
     backdropHero.root.rotateY(Math.PI - 0.35 + Math.sin(backdropT * 0.4) * 0.08);
-    backdropHero.update(dt, { speed: 0, grounded: true, crouch: 0, pitch: -0.1, jetting: false, mag: true, attached: false, alive: true, suit: 1, firing: false, reloading: false, localVel: new THREE.Vector3(), ability: 0 }, backdropT);
+    backdropHero.update(dt, { speed: 0, grounded: true, crouch: 0, pitch: -0.5, /* weapon lowered: relaxed "ready" stance, not aiming at the camera */ jetting: false, mag: true, attached: false, alive: true, suit: 1, firing: false, reloading: false, localVel: new THREE.Vector3(), ability: 0 }, backdropT);
   }
 }
 

@@ -325,7 +325,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     id: 'needle', role: 'scout', passive: 'spotter', mass: 0.95, health: 175, suit: 75, speed: 5.3, weapon: 'rail', ability1: ab('decoy', 12, 8), ability2: ab('sensor', 14, 12), ultimate: ab('overcharge', 0, 7), ultCost: 1700, sealants: 2, color: '#4db8ff', visor: '#7ff0ff', difficulty: 3,
     builds: [
       B('marksman', 'Меткий стрелок', 'Marksman', 'Рельсотрон заряжается и стреляет на 15% быстрее.', 'Railgun charges and fires 15% faster.', 1, { fireRate: 1.15 }),
-      B('recon', 'Дозорный', 'Recon', 'Датчик движения перезаряжается на 25% быстрее.', 'Motion Sensor cooldown −25%.', 3, { cd2: 0.75, flags: ['wideSensor'] }),
+      B('recon', 'Дозорный', 'Recon', 'Датчик движения: перезарядка на 25% быстрее, радиус 28 м вместо 20.', 'Motion Sensor: 25% faster cooldown, 28 m radius instead of 20.', 3, { cd2: 0.75, flags: ['wideSensor'] }),
       B('ghost', 'Призрак', 'Ghost', 'Выпуская приманку, вы на 2 с становитесь невидимы.', 'Deploying your decoy also cloaks you for 2 s.', 6, { flags: ['decoyCloak'] }),
     ],
   },

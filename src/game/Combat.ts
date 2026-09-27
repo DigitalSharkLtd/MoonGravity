@@ -1000,11 +1000,13 @@ export class Combat {
       // blink light
       if (p.mesh) (p.mesh.children[1] as THREE.Mesh).visible = Math.sin(p.age * 10) > 0;
     } else if (p.kind === 'sensor') {
-      if (Math.random() < dt * 2) g.effects.add.spawn({ pos: p.pos, life: 1.2, size0: 0.3, size1: 18, color0: 0x4db8ff, alpha0: 0.25, sprite: 3 });
+      // Recon build ('wideSensor'): 28 m instead of 20 m
+      const R = owner?.flags.has('wideSensor') ? 28 : 20;
+      if (Math.random() < dt * 2) g.effects.add.spawn({ pos: p.pos, life: 1.2, size0: 0.3, size1: R * 0.9, color0: 0x4db8ff, alpha0: 0.25, sprite: 3 });
       if (!owner) return;
       for (const f of g.fighters) {
         if (!f.alive || !g.areEnemies(owner, f)) continue;
-        if (f.body.pos.distanceTo(p.pos) < 20) f.revealedT = Math.max(f.revealedT, 0.5);
+        if (f.body.pos.distanceTo(p.pos) < R) f.revealedT = Math.max(f.revealedT, 0.5);
       }
     }
   }

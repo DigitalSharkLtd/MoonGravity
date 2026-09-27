@@ -1233,6 +1233,7 @@ export class Game {
         if (f.breached) this.effects.vent(m.packWorld, _w.copy(f.body.up).applyAxisAngle(f.body.right(_v), 0.8), Math.min(1, leakRate(f) / 8));
       }
     }
+    this.summons.interpolate(Math.min(1, this.acc / FIXED));
     // camera
     if (me) {
       const b = me.body;

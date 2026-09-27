@@ -10,6 +10,8 @@ export type SummonKind = 'turret' | 'huntdrone' | 'spotdrone' | 'kamikaze' | 'ba
 export const SUMMON_KINDS: SummonKind[] = ['turret', 'huntdrone', 'spotdrone', 'kamikaze', 'barricade', 'decoy'];
 
 export interface Summon {
+  /** position at the start of the last simulation step (render interpolation) */
+  prevPos?: THREE.Vector3;
   id: number;
   kind: SummonKind;
   owner: number;
@@ -209,10 +211,20 @@ export class Summons {
     s.model?.dispose();
   }
 
+  /** drones move at the 60 Hz simulation rate: draw them between their last two steps (smooth on any frame rate) */
+  interpolate(alpha: number): void {
+    for (const s of this.list) {
+      if (s.dead || s.ghost || !s.prevPos) continue;
+      if (s.prevPos.distanceToSquared(s.pos) > 25) continue; // teleport / spawn: keep the raw position
+      s.mesh.position.copy(s.prevPos).lerp(s.pos, alpha);
+    }
+  }
+
   update(dt: number): void {
     const g = this.game;
     for (const s of this.list) {
       if (s.dead) continue;
+      (s.prevPos ??= s.pos.clone()).copy(s.pos); // for render interpolation (see interpolate)
       s.age += dt;
       if (!s.ghost && s.age >= s.life) {
         if (s.kind === 'kamikaze') this.explodeKamikaze(s);

@@ -10,6 +10,7 @@ const CHUNK = 64; // cells per chunk side
 /** Shader chunk: procedural regolith detail (micro craters, grain, pebbles) layered on top of the toon lighting. */
 const TERRAIN_PARS = /* glsl */ `
 varying vec3 vWorldPos;
+varying vec3 vWN;
 varying float vOre;
 varying float vTintShift;
 uniform float uTime;
@@ -115,6 +116,7 @@ export class TerrainMesh {
           attribute vec3 aBake;
           varying vec3 vBake;
           varying vec3 vWorldPos;
+          varying vec3 vWN;
           varying float vOre;
           varying float vTintShift;`,
         )
@@ -122,6 +124,7 @@ export class TerrainMesh {
           '#include <begin_vertex>',
           `#include <begin_vertex>
           vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+          vWN = normalize(mat3(modelMatrix) * objectNormal);
           vOre = aOre;
           vBake = aBake;
           vTintShift = aTint;`,
@@ -147,6 +150,17 @@ export class TerrainMesh {
           diffuseColor.rgb *= 1.0 - peb * 0.25 * (1.0 - smoothstep(10.0, 40.0, camDist));
           vec3 det = texture2D(tDetail, wp / 3.0).rgb * 0.6 + texture2D(tDetail, wp / 11.0).rgb * 0.4;
           diffuseColor.rgb *= mix(vec3(1.0), det * 1.08, 1.0 - smoothstep(30.0, 110.0, camDist));
+          // exposed bedrock on steep slopes (crater walls, benches, ridges): darker, cooler, layered
+          {
+            float slope = 1.0 - clamp(vWN.y, 0.0, 1.0);
+            float rockK = smoothstep(0.09, 0.24, slope + (tvnoise(wp * 0.35) - 0.5) * 0.07);
+            float strata = 0.5 + 0.5 * sin(vWorldPos.y * 2.4 + tvnoise(wp * 0.21) * 3.0);
+            float chips = tvnoise(wp * 3.1) * 0.6 + tvnoise(wp * 7.9) * 0.4;
+            vec3 rock = diffuseColor.rgb * vec3(0.6, 0.61, 0.66) * (0.8 + 0.3 * strata) * (0.85 + 0.3 * chips);
+            diffuseColor.rgb = mix(diffuseColor.rgb, rock, rockK);
+            // bright fresh ejecta dust just above steep rims
+            diffuseColor.rgb *= 1.0 + 0.06 * smoothstep(0.03, 0.08, slope) * (1.0 - rockK);
+          }
           `,
         )
         .replace(

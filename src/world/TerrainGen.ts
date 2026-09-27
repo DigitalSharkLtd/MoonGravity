@@ -97,7 +97,9 @@ export function generateTerrain(def: MapDef): TerrainData {
   const inFlat = (x: number, z: number, pad: number) =>
     def.flats.some((f) => Math.abs(x - f.x) < f.w + pad && Math.abs(z - f.z) < f.d + pad);
   let guard = 0;
-  while (craters.length < def.craters.length + def.randomCraters && guard++ < 5000) {
+  // denser, more pockmarked surface: ~1.8x the authored random crater count, mostly small ones
+  const nRandom = Math.round(def.randomCraters * 1.8);
+  while (craters.length < def.craters.length + nRandom && guard++ < 8000) {
     const u = rng.next();
     const r = 1.2 + (def.craterMaxR - 1.2) * Math.pow(u, 3.2);
     const x = rng.range(hf.x0 + 5, hf.x1 - 5);

@@ -6,6 +6,7 @@ import { Sky, dirFromAngles } from './Sky';
 import { PhysicsWorld } from '../core/Physics';
 import { StructureBuilder, Animated } from './Builder';
 import { buildLayout, LayoutInfo } from './Layouts';
+import { gradeFoundations } from './Foundations';
 import { scatterRocks } from './Props';
 import type { Quality } from '../game/Types';
 import { Lighting as _L, ShadowMode } from './Lighting';
@@ -56,6 +57,13 @@ export class World {
     lap('layout');
     this.structures = b.finish();
     lap('merge+bake');
+    // level the ground under every foundation, then rebuild the terrain surface over it
+    const noGrade = typeof location !== 'undefined' && location.search.includes('nograde'); // debug A/B
+    const graded = noGrade ? { footprints: 0, cells: 0, box: null } : gradeFoundations(this.physics, this.terrainData.hf);
+    if (graded.box) this.terrain.refresh(graded.box);
+    for (const s of this.layout.spawns) s.pos.y = Math.max(s.pos.y, this.terrainData.hf.heightAt(s.pos.x, s.pos.z) + 0.3);
+    console.info(`[world] graded ${graded.footprints} foundations (${graded.cells} cells)`);
+    lap('grading');
     this.terrain.bakeLights(b.lights, b.lamps);
     lap('terrainBake');
     this.scene.add(this.structures);

@@ -171,6 +171,9 @@ export class Fighter {
   renderPos = new THREE.Vector3();
   renderQuat = new THREE.Quaternion();
   renderPitch = 0;
+  /** body state at the start of the last fixed step: rendering interpolates prev → current */
+  prevPos = new THREE.Vector3();
+  prevQuat = new THREE.Quaternion();
   /** net interpolation buffer (remote fighters) */
   snaps: { t: number; pos: THREE.Vector3; quat: THREE.Quaternion; pitch: number; vel: THREE.Vector3; flags: number }[] = [];
   ping = 0;
@@ -312,6 +315,8 @@ export class Fighter {
     this.anchor = null;
     this.slam = 0;
     this.body.reset(pos, yaw);
+    this.prevPos.copy(this.body.pos); // no interpolation streak across the respawn teleport
+    this.prevQuat.copy(this.body.quat);
     // mag-boots start switched off: walking up walls / ceilings needs them switched on (F) first
     this.body.magOn = false;
     this.renderPos.copy(pos);

@@ -232,6 +232,7 @@ export class HeroModel {
   private armLen: [number, number] = [0.33, 0.3];
   private airVy = 0;
   private wasGrounded = true;
+  private airT = 0;
   private landK = 0;
   private reloadK = 0;
   private castK = 0;
@@ -524,6 +525,10 @@ export class HeroModel {
 
   update(dt: number, s: AnimState, time: number): void {
     const B = (n: BoneName) => this.bones.get(n)!;
+    // a one-step "airborne" blip (downhill, bumps, step edges) must not flip the pose between the run
+    // cycle and the air pose — that read as characters twitching; a real jump (fast upward) switches at once
+    this.airT = s.grounded ? 0 : this.airT + dt;
+    if (!s.grounded && this.airT < 0.12 && s.localVel.y < 1.5) s = { ...s, grounded: true };
     const moving = s.speed > 0.4 && s.grounded;
     const run = s.speed > 4.2;
     // stride locked to ground distance so feet don't skate: 1.45 m per walk cycle,

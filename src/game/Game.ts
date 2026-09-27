@@ -880,8 +880,15 @@ export class Game {
     while (this.acc >= FIXED && steps < 6) {
       this.acc -= FIXED;
       steps++;
+      // remember where every simulated body was, so rendering can interpolate between physics steps
+      for (const f of this.fighters) {
+        if (f.control === 'remote') continue;
+        f.prevPos.copy(f.body.pos);
+        f.prevQuat.copy(f.body.quat);
+      }
       this.fixedStep(FIXED, steps === 1);
     }
+    if (this.acc > FIXED) this.acc = FIXED; // (after a long hitch: don't extrapolate)
     this.render(dt);
     this.input.endFrame();
   }
@@ -1160,8 +1167,12 @@ export class Game {
       const m = f.model;
       m.root.visible = f.alive || f.respawnT > 0.3;
       if (f.control !== 'remote') {
-        f.renderPos.copy(f.body.pos);
-        f.renderQuat.copy(f.body.quat);
+        // physics runs at a fixed 60 Hz while frames come at the display rate: draw the body between
+        // its last two physics states (raw positions made characters judder, worst on >60 Hz screens)
+        const a = Math.min(1, this.acc / FIXED);
+        if (f.prevPos.distanceToSquared(f.body.pos) > 9) f.prevPos.copy(f.body.pos); // teleports: no streak
+        f.renderPos.copy(f.prevPos).lerp(f.body.pos, a);
+        f.renderQuat.copy(f.prevQuat).slerp(f.body.quat, a);
         f.renderPitch = f.body.pitch;
       }
       m.root.position.copy(f.renderPos);
@@ -1202,13 +1213,18 @@ export class Game {
     // camera
     if (me) {
       const b = me.body;
-      const eye = b.eye(new THREE.Vector3());
+      // interpolated eye (see renderPos) instead of the raw physics position
+      const eye = b.eye(new THREE.Vector3()).add(_w.copy(me.renderPos).sub(b.pos));
       // smooth only the snapping of mag-boot transitions
       if (this.smoothEye.distanceToSquared(eye) > 4) this.smoothEye.copy(eye);
       this.smoothEye.lerp(eye, 1 - Math.exp(-dt * 30));
-      const pitch = b.pitch + this.recoilPitch * 0.35;
+      // mouse look not yet consumed by a physics step is shown right away: on frames without a step
+      // (most frames on 120-144 Hz screens) the view used to stand still, so aiming stuttered
+      const pitch = THREE.MathUtils.clamp(b.pitch + this.pendingPitch, -1.53, 1.53) + this.recoilPitch * 0.35;
       this.recoilPitch *= Math.max(0, 1 - dt * 6);
-      _q.copy(b.quat).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitch));
+      _q.copy(b.quat)
+        .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.pendingYaw))
+        .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitch));
       // slide lean / wall-grapple tilt
       const rollT = b.stance === 'slide' ? 0.09 : b.grapple ? THREE.MathUtils.clamp(-me.intent.strafe * 0.06, -0.06, 0.06) : 0;
       this.camRoll += (rollT - this.camRoll) * Math.min(1, dt * 8);

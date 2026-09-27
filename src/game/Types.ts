@@ -173,7 +173,7 @@ export interface Settings {
   adsSensitivity: number; // multiplier 0.2..1.5
   invertY: boolean;
   toggleAim: boolean;
-  /** go full screen when clicking into a match (Alt+Enter toggles any time) */
+  /** go full screen automatically: at start if allowed, on the first click / key press, and when clicking into a match */
   fullscreen: boolean;
   toggleCrouch: boolean;
   keys: Record<Action, string>;

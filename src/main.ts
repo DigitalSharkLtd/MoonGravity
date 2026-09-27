@@ -9,7 +9,7 @@ import { Game } from './game/Game';
 import { offlineBridge } from './game/NetBridge';
 import { HeroModel } from './entities/HeroModel';
 import { warmMatchShaders } from './render/Warmup';
-import { enterFullscreen, toggleFullscreen } from './ui/fullscreen';
+import { enterFullscreen, isFullscreen, toggleFullscreen } from './ui/fullscreen';
 import { MODES, ModeId, HeroId, Settings, Profile, MatchResult, HERO_ORDER, MapId } from './game/Types';
 import { MenuSystem, MenuCallbacks } from './ui/Menu';
 import { Hud } from './ui/Hud';
@@ -330,7 +330,7 @@ function resume(): void {
 }
 
 input.onLockChange = (locked) => {
-  if (!locked && state === 'match' && !ended && game && !game.heroSelectOpen) pause();
+  if (!locked && state === 'match' && !ended && game && !game.heroSelectOpen && !game.paused) pause();
 };
 canvas.addEventListener('click', () => {
   if (state === 'match' && !input.locked && !menu.visible) {
@@ -338,11 +338,30 @@ canvas.addEventListener('click', () => {
     input.lock();
   }
 });
-// Alt+Enter: toggle full screen anywhere (menu or match)
+// Full screen by default, as early as the browser allows: try right away (works where no gesture is
+// needed, e.g. an installed app), otherwise on the player's first click / key press — browsers only
+// allow it from a user gesture. Esc / F10 / F11 as the first key are left alone. Off in settings.
+if (settings.fullscreen) enterFullscreen();
+const firstGesture = (e: Event): void => {
+  if (e instanceof KeyboardEvent && (e.key === 'Escape' || e.key === 'F10' || e.key === 'F11')) return;
+  removeEventListener('pointerdown', firstGesture, true);
+  removeEventListener('keydown', firstGesture, true);
+  if (settings.fullscreen && !isFullscreen()) enterFullscreen();
+};
+addEventListener('pointerdown', firstGesture, true);
+addEventListener('keydown', firstGesture, true);
 addEventListener('keydown', (e) => {
-  if (e.code === 'Enter' && e.altKey) {
+  // F10: toggle full screen anywhere (menu or match)
+  if (e.code === 'F10') {
     e.preventDefault();
     toggleFullscreen();
+    return;
+  }
+  // Esc in a match opens the pause menu. With Keyboard Lock (full screen) the browser no longer drops
+  // the mouse lock on Esc, so the game does it itself; the menu handles Esc while it is open.
+  if (e.code === 'Escape' && state === 'match' && game && !game.paused && !menu.visible && !ended) {
+    input.unlock();
+    pause();
   }
 });
 

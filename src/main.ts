@@ -11,6 +11,7 @@ import { MODES, ModeId, HeroId, Settings, Profile, MatchResult, HERO_ORDER, MapI
 import { MenuSystem, MenuCallbacks } from './ui/Menu';
 import { Hud } from './ui/Hud';
 import { loadSettings, saveSettings, loadProfile, saveProfile, applyMatch, selectedBuild } from './ui/Storage';
+import { registerPwa, canInstall, promptInstall } from './pwa/register';
 import { audio } from './audio/Audio';
 import { setGameLang } from './game/Strings';
 import { NetGame } from './net/NetGame';
@@ -355,6 +356,12 @@ const cb: MenuCallbacks = {
   onLeaveMatch: () => void leaveMatch(),
   onUiSound: (k) => audio.play(k === 'hover' ? 'ui_hover' : 'ui_click', { volume: settings.uiVolume * (k === 'hover' ? 0.5 : 1) }),
   listRooms: (mode) => listRooms(mode),
+  canInstall: () => canInstall(),
+  installApp: () => {
+    void promptInstall().then(() => {
+      if (state === 'menu') menu.showMain();
+    });
+  },
   requestHeroPreview: (_canvas, hero) => {
     if (hero && state === 'menu' && (!backdropHero || backdropHero.hero !== hero)) placeBackdropHero(hero);
   },
@@ -390,6 +397,11 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   pipe.resize();
+});
+
+registerPwa(() => {
+  // the install offer arrived: refresh the main menu so the entry shows up
+  if (state === 'menu' && menu.screen === 'main') menu.showMain();
 });
 
 void (async () => {

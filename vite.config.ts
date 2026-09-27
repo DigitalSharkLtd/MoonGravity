@@ -1,4 +1,6 @@
 import { defineConfig, type Connect, type Plugin } from 'vite';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import { createLobby, MemoryLobbyStorage, MAX_BODY_BYTES, LOBBY_HEADERS } from './shared/lobbyCore';
 
 /**
@@ -68,9 +70,44 @@ function lobbyDevApi(): Plugin {
   };
 }
 
+/**
+ * PWA: emits dist/sw.js from src/pwa/sw.js with a precache list of every built asset
+ * plus the public/ files (icons, audio, manifest), versioned per build.
+ */
+function pwa(): Plugin {
+  const publicFiles = (dir: string, root = dir): string[] => {
+    let out: string[] = [];
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return out;
+    }
+    for (const name of entries) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) out = out.concat(publicFiles(full, root));
+      else out.push(relative(root, full).split(sep).join('/'));
+    }
+    return out;
+  };
+  return {
+    name: 'moongravity-pwa',
+    apply: 'build',
+    generateBundle(_opts, bundle) {
+      // fonts: woff2 only (every target browser supports it), no scripts we never render
+      const skip = (f: string) => f.startsWith('.well-known/') || f === '_headers' || f === '_redirects' || f.endsWith('.map') || f.endsWith('.md') || f.endsWith('.woff') || /(vietnamese|greek)/.test(f);
+      const files = [...Object.keys(bundle), ...publicFiles('public')].filter((f) => !skip(f) && f !== 'sw.js');
+      const urls = ['./', ...files.map((f) => './' + f)];
+      const version = Date.now().toString(36);
+      const src = readFileSync('src/pwa/sw.js', 'utf8').replace('__VERSION__', version).replace('__PRECACHE__', JSON.stringify(urls));
+      this.emitFile({ type: 'asset', fileName: 'sw.js', source: src });
+    },
+  };
+}
+
 export default defineConfig({
   base: './',
-  plugins: [lobbyDevApi()],
+  plugins: [lobbyDevApi(), pwa()],
   server: {
     host: true,
     port: 5173,

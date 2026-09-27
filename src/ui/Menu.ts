@@ -36,6 +36,9 @@ export interface MenuCallbacks {
   onUiSound(kind: 'click' | 'hover' | 'back' | 'confirm' | 'error'): void;
   listRooms(mode?: ModeId): Promise<RoomInfo[]>;
   requestHeroPreview?(canvas: HTMLCanvasElement, hero: HeroId | null): void;
+  /** PWA: the browser offered installation (show the "install app" entry) */
+  canInstall?(): boolean;
+  installApp?(): void;
 }
 
 const BUILD = '0.1 · S1';
@@ -54,6 +57,7 @@ export class MenuSystem {
   private profile: Profile;
   private portraits: Partial<Record<HeroId, string>> = {};
   private net: boolean | null = null;
+  private installItem: () => HTMLElement | null = () => null;
   private inMatch = false;
   private pauseInfo: PauseInfo | null = null;
   private heroSelOpts: HeroSelectOpts | null = null;
@@ -530,6 +534,18 @@ export class MenuSystem {
       div('mg-logo-sub', span('', getLang() === 'ru' ? 'Война за палладий' : 'The palladium war'), span('mg-logo-pd', 'Pd · 46')),
     );
 
+    this.installItem = () => {
+      if (!this.cb.canInstall?.()) return null;
+      const b = h(
+        'button',
+        { class: 'mg-nav-item is-small', type: 'button', 'data-snd': 'click' },
+        span('mg-nav-bar'),
+        ico(UI.plus, 'mg-nav-ico'),
+        span('mg-nav-txt', span('mg-nav-label', t('nav.install'))),
+      );
+      b.addEventListener('click', () => this.cb.installApp?.());
+      return b;
+    };
     const navItem = (id: ScreenId, label: string, sub: string, icon: string, cls = '') => {
       const b = h(
         'button',
@@ -551,6 +567,7 @@ export class MenuSystem {
       navItem('profile', t('nav.profile'), t('nav.profile.sub'), UI.profile),
       navItem('settings', t('nav.settings'), t('nav.settings.sub'), UI.gear),
       navItem('credits', t('nav.credits'), '', UI.star, 'is-small'),
+      this.installItem(),
     );
 
     const news = div(

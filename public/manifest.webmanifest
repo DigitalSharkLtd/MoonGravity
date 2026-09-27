@@ -1,0 +1,27 @@
+{
+  "id": "./",
+  "name": "MOON GRAVITY — война за палладий",
+  "short_name": "Moon Gravity",
+  "description": "Стилизованный sci-fi hero-шутер на Луне: две военные базы сражаются за палладиевый рудник. Лунная гравитация, магнитные ботинки, скафандры, дроны и тактические ядерные ракеты.",
+  "lang": "ru",
+  "dir": "ltr",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#05070d",
+  "theme_color": "#0b1020",
+  "categories": ["games", "entertainment"],
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Быстрая игра", "short_name": "Играть", "url": "./?source=pwa&quick=1", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

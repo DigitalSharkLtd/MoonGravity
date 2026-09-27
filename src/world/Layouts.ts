@@ -63,6 +63,13 @@ export function buildLayout(b: StructureBuilder, def: MapDef, td: TerrainData): 
   else buildFront(b, def, info, mineTop, floorY);
   // spawns: keep explicit heights (interiors); only snap spawns that are below the terrain
   for (const s of info.spawns) s.pos.y = Math.max(s.pos.y, b.ground(s.pos.x, s.pos.z) + 0.3);
+  // final pass: move markers out of props placed later (cover clusters, rooftop clutter)
+  for (const s of info.spawns) s.pos.copy(nudgeFree(b, s.pos));
+  for (const p of info.pickups) {
+    if (!p.elevated) p.pos.y = b.ground(p.pos.x, p.pos.z);
+    p.pos.copy(nudgeFree(b, p.pos));
+  }
+  for (const p of info.perches) p.copy(nudgeFree(b, p));
   return info;
 }
 

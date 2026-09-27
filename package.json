@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "server": "node server/server.mjs",
     "start": "vite build && node server/server.mjs",
-    "typecheck:server": "tsc --noEmit --strict --skipLibCheck --target es2022 --module esnext --moduleResolution bundler --types node --isolatedModules shared/lobbyCore.ts netlify/functions/lobby.mts vite.config.ts"
+    "typecheck:server": "tsc --noEmit --strict --skipLibCheck --target es2022 --module esnext --moduleResolution bundler --types node --isolatedModules shared/lobbyCore.ts netlify/functions/lobby.mts vite.config.ts",
+    "dist": "npm run build && node scripts/pack-drop.mjs"
   },
   "dependencies": {
     "@fontsource/exo-2": "^5.3.0",

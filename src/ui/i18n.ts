@@ -301,7 +301,8 @@ const RU = {
   'act.back': 'Назад',
   'act.left': 'Влево',
   'act.right': 'Вправо',
-  'act.jump': 'Прыжок / ранец',
+  'act.jump': 'Прыжок (удерживать — ранец)',
+  'act.sprint': 'Бег',
   'act.crouch': 'Присесть',
   'act.fire': 'Огонь',
   'act.aim': 'Прицеливание',
@@ -824,7 +825,8 @@ const EN: Record<StrKey, string> = {
   'act.back': 'Back',
   'act.left': 'Left',
   'act.right': 'Right',
-  'act.jump': 'Jump / jetpack',
+  'act.jump': 'Jump (hold — jetpack)',
+  'act.sprint': 'Sprint',
   'act.crouch': 'Crouch',
   'act.fire': 'Fire',
   'act.aim': 'Aim',
@@ -1552,7 +1554,8 @@ export function keyLabel(code: string): string {
 // loading-screen tips
 
 const TIPS: Bi[] = [
-  { ru: 'Гравитация Луны — 1,62 м/с². Прыжки высокие и медленные, а в воздухе вы — лёгкая мишень.', en: 'Lunar gravity is 1.62 m/s². Jumps are high and slow — and mid-air you are an easy target.' },
+  { ru: 'Короткое нажатие пробела — прыжок, удержание дольше секунды — реактивный ранец. Shift — бег.', en: 'Tap Space to jump, hold it for over a second to fire the jetpack. Shift sprints.' },
+  { ru: 'Магнитные ботинки (F) выключены при высадке: включите их, чтобы ходить по стенам и потолкам.', en: 'Mag-boots (F) start switched off: turn them on to walk on walls and ceilings.' },
   { ru: 'Магнитные ботинки [F] позволяют ходить по металлическим стенам, фасадам и даже потолкам.', en: 'Magnetic boots [F] let you walk on metal walls, facades and even ceilings.' },
   { ru: 'Если скафандр повреждён больше чем наполовину, начинается утечка кислорода. Латайте его герметиком [H].', en: 'Once your suit is more than half damaged it starts leaking oxygen. Patch it with sealant [H].' },
   { ru: 'Кислородные станции на базах восполняют O₂ и чинят скафандр.', en: 'Oxygen stations at the bases refill O₂ and repair your suit.' },

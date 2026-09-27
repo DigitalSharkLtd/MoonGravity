@@ -17,7 +17,7 @@ const TAB_ICON: Record<SettingsTab, string> = {
 };
 
 const KEY_GROUPS_BASE: { title: string; actions: Action[] }[] = [
-  { title: 'settings.group.move', actions: ['forward', 'back', 'left', 'right', 'jump', 'crouch', 'prone', 'roll', 'mag', 'grapple'] },
+  { title: 'settings.group.move', actions: ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'crouch', 'prone', 'roll', 'mag', 'grapple'] },
   { title: 'settings.group.combat', actions: ['fire', 'aim', 'reload', 'melee', 'weapon1', 'weapon2', 'ability1', 'ability2', 'ultimate', 'sealant'] },
   { title: 'settings.group.other', actions: ['interact', 'ping', 'view', 'scoreboard', 'map', 'chat'] },
 ];

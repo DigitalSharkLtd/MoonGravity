@@ -73,6 +73,12 @@ export function sanitizeSettings(raw: unknown): Settings {
     if (typeof v === 'string' && v.length > 0 && v.length < 32) keys[a] = v;
   }
   migrateKeys(keys);
+  // builds before sprint existed had abilities on Shift / E, ultimate on Q, interact on X:
+  // move whatever is still on those old defaults to the new layout (sprint takes Shift)
+  if (isObj(s.keys) && !('sprint' in keysIn)) {
+    const old: Partial<Record<Action, string>> = { ability1: 'ShiftLeft', ultimate: 'KeyQ', interact: 'KeyX' };
+    for (const a of Object.keys(old) as Action[]) if (keys[a] === old[a]) keys[a] = DEFAULT_KEYS[a];
+  }
   const ch = isObj(s.crosshair) ? s.crosshair : {};
   return {
     version: 1,

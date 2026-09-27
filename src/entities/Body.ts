@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PhysicsWorld, Contact, MOON_G } from '../core/Physics';
+import { PhysicsWorld, Contact, BODY_G, JET_HOLD } from '../core/Physics';
 
 export interface MoveInput {
   forward: number; // -1..1
@@ -87,17 +87,20 @@ export class Body {
   jetFuel = 1;
   jetting = false;
   jetDelay = 0;
+  jumpHold = 0;
+  /** jump-key hold needed to light the jetpack (bots use a shorter one) */
+  jetHold = JET_HOLD;
   airTime = 0;
   crouching = false;
   moveSpeed = 0;
   speedMul = 1;
   // ---- movement tuning (defaults = standard suit; the game adjusts them per hero / passive) ----
   /** take-off speed of a standing jump (m/s): 2.85 → ~2.5 m apex, ~3.5 s airtime in 1/6 g */
-  jumpSpeed = 2.85;
+  jumpSpeed = 4.8;
   /** suit RCS air control (m/s²) */
   airControl = 2.4;
   /** jetpack: vertical thrust (m/s²), climb-speed cap, fuel burn (1/s) and refuel rates */
-  jetThrust = 4.4;
+  jetThrust = 8.8;
   jetCap = 4.2;
   jetBurn = 1 / 2.3;
   jetRegen = 0.5;
@@ -260,6 +263,8 @@ export class Body {
     if (this.terrainLock > 0) this.terrainLock -= dt;
     if (this.wallLock > 0) this.wallLock -= dt;
     if (this.jetDelay > 0) this.jetDelay -= dt;
+    // how long the jump key has been held: tap = jump, a long hold lights the jetpack
+    this.jumpHold = input.jump ? this.jumpHold + dt : 0;
 
     // ---- look ----
     if (input.yaw !== 0) {
@@ -370,7 +375,7 @@ export class Body {
         this.vel.addScaledVector(dir, 46 * dt);
         if (sp > 30) this.vel.multiplyScalar(30 / sp);
       }
-      this.vel.y -= MOON_G * 0.25 * dt;
+      this.vel.y -= BODY_G * 0.25 * dt;
       this.grounded = false;
       this.attached = false;
       this.jetting = false;
@@ -404,16 +409,16 @@ export class Body {
       vt.add(_n);
       // keep a small press toward the ground so resting contact is detected every step
       this.vel.copy(vt).addScaledVector(n, this.attached ? -0.5 : Math.min(0, vn));
-      if (!this.attached) this.vel.y -= MOON_G * dt;
+      if (!this.attached) this.vel.y -= BODY_G * dt;
 
       if (input.jumpPressed && this.proneOn) {
         // jump from prone = stand up
         this.proneOn = false;
       } else if (input.jumpPressed) {
-        const js = this.stance === 'slide' ? this.jumpSpeed + 0.45 : this.crouching ? this.jumpSpeed * 0.8 : this.jumpSpeed;
+        const js = this.stance === 'slide' ? this.jumpSpeed + 0.6 : this.crouching ? this.jumpSpeed * 0.8 : this.jumpSpeed;
         if (this.attached && this.up.y < 0.8) {
           // push off a wall/ceiling
-          this.vel.addScaledVector(this.up, 3.6);
+          this.vel.addScaledVector(this.up, 4.4);
           this.detachTimer = 0.45;
         } else {
           this.vel.addScaledVector(this.up, js);
@@ -428,7 +433,7 @@ export class Body {
       }
     } else {
       // ---- airborne ----
-      if (!(this.flipTimer > 0)) this.vel.y -= MOON_G * dt;
+      if (!(this.flipTimer > 0)) this.vel.y -= BODY_G * dt;
       // air control (suit RCS thrusters), plus jetpack
       const hv = _p.copy(this.vel);
       hv.y = 0;
@@ -452,7 +457,7 @@ export class Body {
         this.jetDelay = 0.35;
         ev.jumped = true;
       }
-      const canJet = input.jump && this.jetFuel > 0.02 && this.jetDelay <= 0;
+      const canJet = input.jump && (this.jetting || this.jumpHold >= this.jetHold) && this.jetFuel > 0.02 && this.jetDelay <= 0;
       if (canJet) {
         if (!this.jetting) ev.jetStart = true;
         this.jetting = true;

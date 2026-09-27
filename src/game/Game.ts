@@ -67,6 +67,8 @@ const BOT_NAMES = ['Орбита', 'Кратер', 'Селен', 'Апогей',
 /**
  * One match: owns the fighters and all simulation systems for a world.
  */
+const minimapCache = new Map<string, HTMLCanvasElement>();
+
 export class Game {
   world: World;
   pipe: Pipeline;
@@ -828,6 +830,8 @@ export class Game {
       it.aim = this.aimToggle;
     } else it.aim = locked && this.isAction('aim');
     it.altPressed = locked && this.pressedAction('aim');
+    // sprint (Shift): forward only; firing or aiming drops back to a walk
+    it.sprint = locked && this.isAction('sprint') && !it.fire && !it.aim;
     it.reload = locked && this.pressedAction('reload');
     it.ability1 = locked && this.pressedAction('ability1');
     it.ability2 = locked && this.pressedAction('ability2');
@@ -1257,7 +1261,7 @@ export class Game {
         aspect,
         fov: 58,
         ads: me.intent.aim && adsCapable(w.def),
-        sprint: false,
+        sprint: me.intent.sprint && b.grounded && b.moveSpeed > 5,
         crouch: b.crouching ? 1 : 0,
         switching: me.switchT > 0,
         time: this.time,
@@ -1401,6 +1405,7 @@ export class Game {
       sealing: -1,
       ads: 0,
       scope: 'none',
+      sight: false,
       cloaked: false,
       invulnerable: false,
       spread: 10,
@@ -1496,6 +1501,7 @@ export class Game {
     s.sealing = me.sealT > 0 ? 1 - me.sealT / 1.2 : -1;
     s.ads = this.adsBlend;
     s.scope = this.adsBlend > 0.5 ? (w.id === 'rail' ? 'rail' : w.id === 'nuke' ? 'nuke' : w.id === 'helios' ? 'designator' : 'none') : 'none';
+    s.sight = w.def.alt === 'ads' && w.id !== 'nuke' && w.id !== 'helios' && !this.thirdPerson;
     s.cloaked = me.cloakT > 0;
     s.invulnerable = me.invulnT > 0;
     const spreadRad = coneOf(w.def, this.combat.aimState(me, w));
@@ -1688,6 +1694,9 @@ export class Game {
   // ------------------------------------------------------------------ minimap
 
   renderMinimap(size = 512): HTMLCanvasElement {
+    // the top-down map only depends on the map layout: render it once per map and session
+    const cached = minimapCache.get(this.world.def.id + ':' + size);
+    if (cached) return cached;
     const bd = this.world.physics.bounds;
     const w = bd.maxX - bd.minX;
     const h = bd.maxZ - bd.minZ;
@@ -1701,9 +1710,12 @@ export class Game {
     const r = this.pipe.renderer;
     const sky = this.world.sky.group.visible;
     this.world.sky.group.visible = false;
+    const autoShadow = r.shadowMap.autoUpdate;
+    r.shadowMap.autoUpdate = false; // no need to redraw the shadow cascades for a flat map
     r.setRenderTarget(rt);
     r.render(this.world.scene, cam);
     r.setRenderTarget(null);
+    r.shadowMap.autoUpdate = autoShadow;
     this.world.sky.group.visible = sky;
     const px = new Uint8Array(rw * rh * 4);
     r.readRenderTargetPixels(rt, 0, 0, rw, rh, px);
@@ -1725,6 +1737,7 @@ export class Game {
       }
     }
     ctx.putImageData(img, 0, 0);
+    minimapCache.set(this.world.def.id + ':' + size, cv);
     return cv;
   }
 

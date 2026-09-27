@@ -332,6 +332,7 @@ function fakeHudState(t: number): HudState {
     sealing: v === 'breach' ? (t * 0.4) % 1 : -1,
     ads: v === 'rail' || v === 'nuke' || v === 'designator' ? 1 : 0,
     scope: v === 'rail' ? 'rail' : v === 'nuke' ? 'nuke' : v === 'designator' ? 'designator' : 'none',
+    sight: false,
     cloaked: v === 'cloak',
     invulnerable: v === 'invuln',
     grapple: { cooldown: v === 'combat' ? Math.max(0, 5 - (t % 8)) : 0, ready: v === 'combat' ? 5 - (t % 8) <= 0 : true, active: false },

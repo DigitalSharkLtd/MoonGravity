@@ -73,6 +73,7 @@ export type Action =
   | 'left'
   | 'right'
   | 'jump'
+  | 'sprint'
   | 'crouch'
   | 'fire'
   | 'aim'
@@ -101,19 +102,20 @@ export const DEFAULT_KEYS: Record<Action, string> = {
   left: 'KeyA',
   right: 'KeyD',
   jump: 'Space',
+  sprint: 'ShiftLeft',
   crouch: 'ControlLeft',
   fire: 'Mouse0',
   aim: 'Mouse2',
   reload: 'KeyR',
-  ability1: 'ShiftLeft',
+  ability1: 'KeyQ',
   ability2: 'KeyE',
-  ultimate: 'KeyQ',
+  ultimate: 'KeyX',
   weapon1: 'Digit1',
   weapon2: 'Digit2',
   sealant: 'KeyH',
   mag: 'KeyF',
   ping: 'Mouse1',
-  interact: 'KeyX',
+  interact: 'KeyY',
   grapple: 'KeyG',
   melee: 'KeyV',
   prone: 'KeyZ',
@@ -585,6 +587,8 @@ export interface HudState {
   // aiming
   ads: number; // 0..1
   scope: 'none' | 'rail' | 'nuke' | 'designator';
+  /** aiming through a holo sight: its reticle replaces the HUD crosshair */
+  sight: boolean;
   cloaked: boolean;
   invulnerable: boolean;
   /** universal gadgets / stance (optional for older HUDs) */

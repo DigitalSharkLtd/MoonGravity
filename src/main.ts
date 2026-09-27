@@ -8,6 +8,7 @@ import { Input } from './core/Input';
 import { Game } from './game/Game';
 import { offlineBridge } from './game/NetBridge';
 import { HeroModel } from './entities/HeroModel';
+import { warmMatchShaders } from './render/Warmup';
 import { MODES, ModeId, HeroId, Settings, Profile, MatchResult, HERO_ORDER, MapId } from './game/Types';
 import { MenuSystem, MenuCallbacks } from './ui/Menu';
 import { Hud } from './ui/Hud';
@@ -102,11 +103,12 @@ async function ensureWorld(map: MapId, title: string): Promise<World> {
   world.lighting.setReflections(settings.reflections);
   worldMap = map;
   worldDirty = false;
+  backdropSpot = null;
   console.info(`[world] ${map} built in ${Math.round(performance.now() - t0)} ms`);
   pipe.setScene(world.scene, camera);
   menu.showLoading(title, 0.8);
   await nextFrame();
-  pipe.renderer.compile(world.scene, camera); // warm up shaders
+  await pipe.renderer.compileAsync(world.scene, camera).catch(() => undefined); // warm up shaders (parallel, keeps the page responsive)
   return world;
 }
 
@@ -120,25 +122,75 @@ function placeBackdropHero(hero: HeroId): void {
   world.scene.add(backdropHero.root);
 }
 
+/** open ground for the menu hero (no props on it, clear line to the camera), looking toward base A */
+let backdropSpot: { p: THREE.Vector3; dir: THREE.Vector3 } | null = null;
+function findBackdropSpot(w: World): { p: THREE.Vector3; dir: THREE.Vector3 } {
+  const hf = w.terrainData.hf;
+  const phys = w.physics;
+  const base = w.layout.baseCenters[0] ?? new THREE.Vector3(-60, 0, 0);
+  const down = new THREE.Vector3(0, -1, 0);
+  const o = new THREE.Vector3();
+  const blockedAt = (x: number, z: number) => {
+    const g = hf.heightAt(x, z);
+    const hit = phys.raycast(o.set(x, g + 6, z), down, 6.2);
+    return !!hit && hit.colliderId >= 0;
+  };
+  let fallback: { p: THREE.Vector3; dir: THREE.Vector3 } | null = null;
+  for (let r = 16; r <= 64; r += 4) {
+    for (let k = 0; k < 24; k++) {
+      const a = 0.35 + (k / 24) * Math.PI * 2;
+      const x = base.x + Math.cos(a) * r;
+      const z = base.z + Math.sin(a) * r;
+      const p = new THREE.Vector3(x, hf.heightAt(x, z), z);
+      const dir = new THREE.Vector3(base.x - x, 0, base.z - z).normalize();
+      fallback ??= { p, dir };
+      // the hero's footprint and the ground between hero and camera must be free of props
+      let ok = true;
+      for (let i = -2; i <= 7 && ok; i++) for (const sd of [-1.4, 0, 1.4]) if (blockedAt(x - dir.x * i + dir.z * sd, z - dir.z * i - dir.x * sd)) ok = false;
+      if (!ok) continue;
+      // clear sight from the camera area to the hero's chest and feet
+      const cam = p.clone().addScaledVector(dir, -6).setY(hf.heightAt(p.x - dir.x * 6, p.z - dir.z * 6) + 1.8);
+      if (!phys.visible(cam, o.copy(p).setY(p.y + 1.2)) || !phys.visible(cam, o.copy(p).setY(p.y + 0.3))) continue;
+      return { p, dir };
+    }
+  }
+  return fallback!;
+}
+
 function backdropCamera(dt: number): void {
   if (!world) return;
   backdropT += dt;
-  const base = world.layout.baseCenters[0] ?? new THREE.Vector3(-60, 0, 0);
-  const ang = 0.35 + Math.sin(backdropT * 0.05) * 0.12;
-  const cx = base.x + 18 + Math.cos(ang) * 6;
-  const cz = base.z + 22 + Math.sin(ang) * 4;
-  const hf = world.terrainData.hf;
-  camera.position.set(cx, hf.heightAt(cx, cz) + 1.7, cz);
-  camera.lookAt(0, hf.heightAt(0, 0) + 4, 0);
+  const s = (backdropSpot ??= findBackdropSpot(world));
   camera.fov = 55;
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
+  // look toward the base, slightly down, with a slow drift
+  const yaw = Math.atan2(-s.dir.x, -s.dir.z) + Math.sin(backdropT * 0.05) * 0.06;
+  camera.quaternion.setFromEuler(new THREE.Euler(-0.06 + Math.sin(backdropT * 0.037) * 0.015, yaw, 0, 'YXZ'));
+  camera.updateMatrixWorld();
+  // put the hero's feet exactly on the menu's holo ring (or on the right third without one)
+  let nx = 0.42;
+  let ny = -0.62;
+  let stageH = innerHeight * 0.62;
+  const ring = document.querySelector('.mg-stage-ring');
+  const stage = ring?.closest('.mg-stage');
+  if (ring && stage) {
+    const r = ring.getBoundingClientRect();
+    if (r.width > 0) {
+      nx = ((r.left + r.width / 2) / innerWidth) * 2 - 1;
+      ny = -(((r.top + r.height / 2) / innerHeight) * 2 - 1);
+      stageH = stage.getBoundingClientRect().height;
+    }
+  }
+  const ray = new THREE.Vector3(nx, ny, 0.5).unproject(camera).sub(camera.position).normalize();
+  // distance so the hero (≈1.9 m) fills most of the stage height
+  const ppm = innerHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
+  const dist = THREE.MathUtils.clamp((1.9 * ppm) / Math.max(120, stageH * 0.7), 3.2, 11);
+  camera.position.copy(s.p).addScaledVector(ray, -dist);
+  const hf = world.terrainData.hf;
+  camera.position.y = Math.max(camera.position.y, hf.heightAt(camera.position.x, camera.position.z) + 0.6);
   if (backdropHero) {
-    const fwd = new THREE.Vector3();
-    camera.getWorldDirection(fwd);
-    const right = new THREE.Vector3().crossVectors(fwd, camera.up).normalize();
-    const p = camera.position.clone().addScaledVector(fwd, 4.2).addScaledVector(right, 1.35);
-    p.y = hf.heightAt(p.x, p.z);
+    const p = s.p;
     backdropHero.root.position.copy(p);
     backdropHero.root.lookAt(camera.position.x, p.y, camera.position.z);
     backdropHero.root.rotateY(Math.PI - 0.35 + Math.sin(backdropT * 0.4) * 0.08);
@@ -196,6 +248,11 @@ async function startMatch(mode: ModeId, hero: HeroId, role: 'offline' | 'host' |
   });
   netGame?.attach(game);
   if (role !== 'client') game.fillBots();
+  // compile every hero / weapon / device / effect shader now, under the loading screen
+  menu.showLoading(info.map, 0.96);
+  await nextFrame();
+  await warmMatchShaders(game, pipe.renderer, world.scene, camera, () => pipe.render(0));
+  if (!game) return;
   hud.setMinimap(info.map, game.renderMinimap(), world.physics.bounds);
   hud.setSettings(settings);
   hud.show(true);

@@ -354,8 +354,8 @@ export function fortress(k: Kit, team: number, m: Markers): void {
   k.jersey(19.8, -2.2, Math.PI / 2, 3.4);
   const booth = k.at(14.5, 6.2, 0, 0);
   booth.span(-1.3, 0, -1.3, 1.3, 1.1, 1.3, 'concrete', { metal: false });
-  booth.span(-1.3, 1.1, -1.3, 1.3, 2.4, -1.1, 'glassTint', { noShoot: true, metal: false, bevel: 0 });
-  booth.span(1.1, 1.1, -1.1, 1.3, 2.4, 1.3, 'glassTint', { noShoot: true, metal: false, bevel: 0 });
+  booth.span(-1.3, 1.1, -1.3, 1.3, 2.4, -1.1, 'glassTint', { metal: false, bevel: 0 });
+  booth.span(1.1, 1.1, -1.1, 1.3, 2.4, 1.3, 'glassTint', { metal: false, bevel: 0 });
   booth.span(-1.5, 2.4, -1.5, 1.5, 2.75, 1.5, tm, { bevel: 0.08 });
   booth.console(0, 0.4, Math.PI, 0);
   booth.light(0, 2.1, 0, WARM, 3, 4.5);

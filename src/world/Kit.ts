@@ -86,6 +86,8 @@ export const WARM2 = 0xffb46a;
 export const COOL = 0x9fdcff;
 
 /** Local-frame builder. */
+let slabN = 0;
+
 export class Kit {
   constructor(
     public b: StructureBuilder,
@@ -129,7 +131,10 @@ export class Kit {
     const g = chamferBox(w, h, d, bev, o.seg ?? 2.5, o.uo ?? [x, y, z], o.faces ?? 63);
     const q = this.q(o.rot ?? 0, o.tilt);
     const c = this.p(x, y, z);
-    this.b.add(mat, g, c, q);
+    // floors / decks / slabs that overlap in one plane z-fight (flicker): lift each flat slab's visual
+    // by a different 1–8 mm so one always wins (colliders are untouched)
+    const flat = !o.tilt && h < 0.6 && w > 0.6 && d > 0.6;
+    this.b.add(mat, g, flat ? c.clone().setY(c.y + ((slabN++ % 8) + 1) * 0.001) : c, q);
     if (o.collide === false) return null;
     return this.b.world.addBox(c, V(w / 2, h / 2, d / 2), q, o.metal ?? true, o.noShoot ? { noShoot: true } : {});
   }
@@ -341,7 +346,7 @@ export class Kit {
         k.box(cx, (sill + top) / 2, 0, w - 0.08, top - sill, 0.06, g === 'warm' ? 'glassWarm' : 'glassBlue', { bevel: 0, noShoot: false });
         if (w > 1.6) k.box(cx, (sill + top) / 2, 0, 0.08, top - sill, t * 0.6, 'trim', { collide: false, bevel: 0.02 });
       } else if (g === 'tint') {
-        k.box(cx, (sill + top) / 2, 0, w - 0.08, top - sill, 0.05, 'glassTint', { bevel: 0, noShoot: true, metal: false });
+        k.box(cx, (sill + top) / 2, 0, w - 0.08, top - sill, 0.05, 'glassTint', { bevel: 0, noShoot: false, metal: false }); // armoured glass: stops shots (and bot sight)
         for (let u = x0 + 1.6; u < x1 - 0.5; u += 1.6) k.box(u, (sill + top) / 2, 0, 0.08, top - sill, 0.14, 'trim', { collide: false, bevel: 0.02 });
       }
     } else {

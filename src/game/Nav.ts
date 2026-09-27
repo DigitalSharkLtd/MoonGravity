@@ -104,8 +104,8 @@ export class NavGrid {
             let jump = 0;
             if (Math.abs(dy) <= 0.6 * Math.max(1, horiz)) cost = horiz + Math.abs(dy);
             else if (dy < 0 && dy > -7) cost = horiz + 1 + -dy * 0.2; // drop down
-            else if (dy > 0 && dy < 2.6) {
-              cost = horiz + 3 + dy; // lunar jump up
+            else if (dy > 0 && dy < 2.0) {
+              cost = horiz + 3 + dy; // jump up (≈2.1 m jump apex)
               jump = 1;
             }
             if (cost < 0) continue;

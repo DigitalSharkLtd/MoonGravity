@@ -308,7 +308,8 @@ export class Fighter {
     this.anchor = null;
     this.slam = 0;
     this.body.reset(pos, yaw);
-    this.body.magOn = true;
+    // mag-boots start switched off: walking up walls / ceilings needs them switched on (F) first
+    this.body.magOn = false;
     this.renderPos.copy(pos);
     this.renderQuat.copy(this.body.quat);
     this.model?.resetPose();

@@ -196,7 +196,7 @@ export class Abilities {
         wish.addScaledVector(b.forward(_v), f.intent.forward).addScaledVector(b.right(_w), f.intent.strafe);
         if (wish.lengthSq() > 0.01) wish.normalize().multiplyScalar(6.5);
         if (b.vel.y < 0) b.vel.y *= 0.3;
-        b.impulse(wish.addScaledVector(b.up, 7.4));
+        b.impulse(wish.addScaledVector(b.up, 9));
         g.combat.explode({ pos, radius: 3.5, damage: 30, owner: f.id, team: f.team, source: 'rocketjump', kind: 'rocketjump', knock: 7, emp: 0, selfDamage: 0, suitMul: 1 });
         if (f.flags.has('landBlast')) this.landBlast.add(f.id);
         return true;
@@ -373,10 +373,7 @@ export class Abilities {
       _w.copy(a.target).sub(c);
       const d = _w.length();
       if (d < 1.4 || a.t <= 0) {
-        if (a.normal && d < 2.5) {
-          b.vel.multiplyScalar(0.2);
-          b.magOn = true;
-        }
+        if (a.normal && d < 2.5) b.vel.multiplyScalar(0.2); // clamps onto the wall only if the mag-boots are on
         f.anchor = null;
       } else {
         b.vel.copy(_w.divideScalar(d).multiplyScalar(24));

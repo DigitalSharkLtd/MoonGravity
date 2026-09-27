@@ -195,6 +195,7 @@ export class Bots {
     it.altPressed = false;
     if (!f.alive) return;
     body.magOn = false; // bots navigate on the ground / floors (mag walking would derail paths)
+    body.jetHold = 0.3; // bots hold jump deliberately when they want the jetpack
     const servitor = f.summonOf >= 0;
     const tookDamage = f.health < b.lastHealth - 1;
     b.lastHealth = f.health;
@@ -282,8 +283,10 @@ export class Bots {
       }
       const d = body.aimDeltas(aimDir);
       const maxTurn = this.skill.track * dt;
-      it.yaw = THREE.MathUtils.clamp(d.yaw + b.aimNoise.x * 0.2, -maxTurn, maxTurn);
-      it.pitch = THREE.MathUtils.clamp(d.pitch + b.aimNoise.y * 0.2, -maxTurn, maxTurn);
+      // angular error grows with range: at 40 m a normal bot's aim wanders over a metre
+      const rangeK = 1 + Math.min(60, dist) / 16;
+      it.yaw = THREE.MathUtils.clamp(d.yaw + b.aimNoise.x * 0.22 * rangeK, -maxTurn, maxTurn);
+      it.pitch = THREE.MathUtils.clamp(d.pitch + b.aimNoise.y * 0.22 * rangeK, -maxTurn, maxTurn);
       const onTarget = Math.abs(d.yaw) < 0.06 + this.skill.aimError && Math.abs(d.pitch) < 0.08 + this.skill.aimError;
       if (aimingDevice && onTarget && device) this.shootDevice(f, device, eye);
       else if (visible && b.seenT > this.skill.reaction && onTarget && target) this.combat(f, b, target, dist);

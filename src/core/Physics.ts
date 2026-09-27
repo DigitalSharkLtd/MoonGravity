@@ -2,6 +2,11 @@ import * as THREE from 'three';
 import { Heightfield, RayHit } from '../world/Heightfield';
 
 export const MOON_G = 1.62;
+/** gravity felt by characters: heavier than the real Moon so jumps read higher-and-shorter instead of
+ *  long floaty arcs (projectiles and debris keep true lunar ballistics) */
+export const BODY_G = 5.5;
+/** hold the jump key this long to light the jetpack (a tap is a plain jump) */
+export const JET_HOLD = 1.0;
 
 export type ColliderKind = 'box' | 'cyl' | 'sphere';
 

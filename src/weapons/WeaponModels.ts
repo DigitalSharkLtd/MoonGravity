@@ -12,6 +12,8 @@ export interface WeaponModel {
   glows: THREE.Mesh[];
   /** parts that animate (drum spin, charge rings) — spun around their local Z */
   spin?: THREE.Object3D;
+  /** sight line for aiming down sights: height above the grip, rear / front window distance (f) and front window half-size */
+  sight: { y: number; near: number; far: number; hw: number } | null;
 }
 
 /*
@@ -151,8 +153,12 @@ function topRail(at: At, mat: Mat, y: number, f0: number, f1: number, w = 0.026)
   for (let i = 0; i < n; i++) at(tooth, mat, 0, y + 0.01, f0 + 0.014 + i * 0.022);
 }
 
+/** inner windows of the frame sights of the gun being built: [low, high, f, half-width] */
+let sightWins: [number, number, number, number][] = [];
+
 /** open frame sight (hood with a window) on top of the gun */
 function frameSight(at: At, mat: Mat, y: number, f0: number, f1: number, hw: number, h: number): void {
+  sightWins.push([y + 0.008, y + h - 0.008, (f0 + f1) / 2, hw - 0.008]);
   at(
     sect([[-hw, y, 0.004], [hw, y, 0.004], [hw, y + h, 0.01], [-hw, y + h, 0.01]], f0, f1, {
       holes: [[[-hw + 0.008, y + 0.008, 0.003], [hw - 0.008, y + 0.008, 0.003], [hw - 0.008, y + h - 0.008, 0.006], [-hw + 0.008, y + h - 0.008, 0.006]]],
@@ -309,7 +315,7 @@ function pulse(c: Ctx): void {
   frameSight(at, D, 0.118, 0.2, 0.23, 0.032, 0.06);
   frameSight(at, D, 0.118, 0.07, 0.09, 0.024, 0.04);
   at(sect([[-0.032, 0.118], [0.032, 0.118], [0.032, 0.126], [-0.032, 0.126]], 0.09, 0.2, { bevel: 0.002 }), D);
-  at(rbox(0.012, 0.012, 0.012, 0.003), glow, 0, 0.131, 0.215);
+  at(rbox(0.012, 0.008, 0.012, 0.003), glow, 0, 0.183, 0.215); // lamp on top of the hood, clear of the sight picture
   // skeleton stock + butt pad + tint cheek riser
   at(
     side(
@@ -994,6 +1000,25 @@ function helios(c: Ctx): void {
   c.muzzle.position.set(0, yc, -0.55);
 }
 
+/** rail + two-frame holo sight sitting on the top surface of the receiver (found by ray casts) */
+function mountHolo(g: THREE.Group, at: At): void {
+  g.updateMatrixWorld(true);
+  const rc = new THREE.Raycaster();
+  let top = -Infinity;
+  for (const f of [0.02, 0.08, 0.14, 0.2, 0.26]) {
+    rc.set(new THREE.Vector3(0, 1, -f), new THREE.Vector3(0, -1, 0));
+    const hit = rc.intersectObject(g, true)[0];
+    if (hit) top = Math.max(top, hit.point.y);
+  }
+  if (!Number.isFinite(top)) top = new THREE.Box3().setFromObject(g).max.y;
+  const D = dark();
+  topRail(at, D, top, 0.0, 0.29);
+  const y = top + 0.012;
+  at(sect([[-0.03, y - 0.004], [0.03, y - 0.004], [0.03, y + 0.004], [-0.03, y + 0.004]], 0.03, 0.25, { bevel: 0.002 }), D);
+  frameSight(at, D, y, 0.04, 0.06, 0.024, 0.042);
+  frameSight(at, D, y, 0.21, 0.24, 0.032, 0.062);
+}
+
 const BUILDERS: Record<WeaponId, (c: Ctx) => void> = { pulse, rail, plasma, glauncher, sealer, twinarc, blade, riveter, burst, nuke, singularity, helios };
 
 /** Stylised chunky sci-fi guns. Barrel points to -Z, grip near the origin. */
@@ -1010,11 +1035,21 @@ export function buildWeaponModel(id: WeaponId, tint?: number): WeaponModel {
     glows: [],
     muzzle: new THREE.Object3D(),
   };
+  sightWins = [];
   BUILDERS[id](c);
+  // aim-down-sights guns without an optic get a compact holo sight on the receiver
+  if (sightWins.length === 0 && WEAPONS[id].alt === 'ads' && id !== 'nuke' && id !== 'helios') mountHolo(g, c.at);
+  let sight: WeaponModel['sight'] = null;
+  if (sightWins.length) {
+    const lo = Math.max(...sightWins.map((w) => w[0]));
+    const hi = Math.min(...sightWins.map((w) => w[1]));
+    const front = sightWins.reduce((a, b) => (b[2] > a[2] ? b : a));
+    sight = { y: (lo + hi) / 2, near: Math.min(...sightWins.map((w) => w[2])), far: front[2], hw: front[3] };
+  }
   g.add(c.muzzle);
   mergeStatic(g, [...c.glows, c.spin]);
   g.traverse((o) => {
     if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true;
   });
-  return { group: g, muzzle: c.muzzle, glows: c.glows, spin: c.spin };
+  return { group: g, muzzle: c.muzzle, glows: c.glows, spin: c.spin, sight };
 }

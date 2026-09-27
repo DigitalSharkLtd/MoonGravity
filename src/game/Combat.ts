@@ -1274,7 +1274,7 @@ export class Combat {
         if (dl < 0.35 || !g.world.physics.raycast(e.pos, _d.divideScalar(dl), dl - 0.3, { ignoreTerrain: false })) seen++;
       }
       const frac = seen / HITBOXES.length;
-      const cover = e.kind === 'nuke' ? 0.55 + 0.45 * frac : 0.12 + 0.88 * frac;
+      const cover = e.kind === 'nuke' ? 0.55 + 0.45 * frac : frac; // fully behind a wall: no damage
       f.hitbox(1, _v);
       _d.copy(_v).sub(e.pos);
       const dl = _d.length();

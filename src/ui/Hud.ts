@@ -955,7 +955,7 @@ export class Hud {
 
     // ---- crosshair / hitmarker / reload ring
     const scoped = s.scope !== 'none' && s.ads > 0.5;
-    this.scopedSlot.set(scoped);
+    this.scopedSlot.set(scoped || (s.sight && s.ads > 0.55));
     this.crosshair.setGap(s.spread * (1 - s.ads * 0.6));
     const hm = this.settings.hitMarkers ? Math.round(clamp(s.hitmarker, 0, 1) * 20) / 20 : 0;
     if (hm !== this.hitQ) {

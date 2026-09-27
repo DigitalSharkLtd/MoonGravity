@@ -19,6 +19,31 @@ const _q3 = new THREE.Quaternion();
 /** foregrip distance along the barrel for the first-person support hand */
 const FOREGRIP_VM: Partial<Record<WeaponId, number>> = { pulse: 0.26, rail: 0.34, plasma: 0.22, glauncher: 0.24, sealer: 0.2, nuke: 0.1, singularity: 0.26, helios: 0.26, riveter: 0.24, burst: 0.26 };
 
+let reticleCache: THREE.CanvasTexture | null = null;
+/** holo reticle: centre dot + broken ring (white, tinted by the material colour) */
+function reticleTex(): THREE.CanvasTexture {
+  if (reticleCache) return reticleCache;
+  const n = 128;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = n;
+  const c = cv.getContext('2d')!;
+  c.strokeStyle = c.fillStyle = '#fff';
+  c.shadowColor = '#fff';
+  c.shadowBlur = 6;
+  c.lineWidth = 5;
+  for (let i = 0; i < 4; i++) {
+    c.beginPath();
+    c.arc(n / 2, n / 2, n * 0.36, (i * Math.PI) / 2 + 0.28, ((i + 1) * Math.PI) / 2 - 0.28);
+    c.stroke();
+  }
+  c.beginPath();
+  c.arc(n / 2, n / 2, 5, 0, Math.PI * 2);
+  c.fill();
+  reticleCache = new THREE.CanvasTexture(cv);
+  reticleCache.colorSpace = THREE.SRGBColorSpace;
+  return reticleCache;
+}
+
 /**
  * First-person hands + weapon, drawn in an overlay scene (own FOV & depth) so it never clips.
  * Materials are private (not in the CSM registry): the overlay scene has a single simple sun light.
@@ -182,8 +207,27 @@ export class Viewmodel {
       }
     });
     this.gun.add(this.weapon.group);
+    this.reticle = null;
+    const sg = this.weapon.sight;
+    if (sg) {
+      // holographic sight: tinted glass pane + a glowing ring-and-dot reticle in the front window
+      const glass = new THREE.Mesh(
+        new THREE.PlaneGeometry(sg.hw * 2, sg.hw * 2),
+        new THREE.MeshBasicMaterial({ color: 0x7fd8ff, transparent: true, opacity: 0.05, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }),
+      );
+      glass.position.set(0, sg.y, -sg.far - 0.004);
+      const ret = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.03, 0.03),
+        new THREE.MeshBasicMaterial({ map: reticleTex(), color: 0xff4a3a, transparent: true, opacity: 0, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, toneMapped: false }),
+      );
+      ret.position.set(0, sg.y, -sg.far);
+      ret.renderOrder = 10;
+      this.weapon.group.add(glass, ret);
+      this.reticle = ret;
+    }
     this.switchT = 1;
   }
+  private reticle: THREE.Mesh | null = null;
 
   get muzzle(): THREE.Object3D | null {
     return this.weapon?.muzzle ?? null;
@@ -207,6 +251,7 @@ export class Viewmodel {
   private swingT = 0;
   private swingSide = 1;
   private grappleK = 0;
+  private sprintK = 0;
 
   update(dt: number, s: { speed: number; grounded: boolean; lookDX: number; lookDY: number; reload: number; charge: number; aspect: number; fov: number; ads: boolean; sprint: boolean; crouch: number; switching: boolean; time: number; visible: boolean; grapple?: boolean }): void {
     this.scene.visible = s.visible && !!this.weapon;
@@ -234,7 +279,9 @@ export class Viewmodel {
 
     const big = this.weaponId === 'nuke' || this.weaponId === 'rail';
     const hip = new THREE.Vector3(big ? 0.22 : 0.2, big ? -0.24 : -0.21, -0.42);
-    const aim = new THREE.Vector3(0, big ? -0.13 : -0.105, -0.3);
+    const sg = this.weapon?.sight;
+    // with an optic the eye sits exactly on the sight line, ~19 cm behind the rear window
+    const aim = sg ? new THREE.Vector3(0, -sg.y, sg.near - 0.19) : new THREE.Vector3(0, big ? -0.13 : -0.105, -0.3);
     const p = hip.clone().lerp(aim, this.ads);
     p.x += Math.sin(this.bobT) * bobAmp + this.sway.x;
     p.y += Math.abs(Math.cos(this.bobT)) * bobAmp * 1.2 - this.landDip + this.sway.y - s.crouch * 0.01;
@@ -242,7 +289,11 @@ export class Viewmodel {
     const reloadDip = s.reload >= 0 ? Math.sin(Math.min(1, s.reload) * Math.PI) : 0;
     p.y -= reloadDip * 0.12 + this.switchT * 0.35 + this.castT * 0.08;
     this.gun.position.copy(p);
-    this.gun.rotation.set(this.kickRot + reloadDip * 0.5 + this.switchT * 0.6, this.sway.x * 2 + (s.sprint ? 0.3 : 0), reloadDip * 0.4 + this.sway.x * 1.5);
+    // sprint: gun canted down and across the chest
+    this.sprintK += ((s.sprint ? 1 : 0) - this.sprintK) * Math.min(1, dt * 8);
+    this.gun.position.x -= this.sprintK * 0.05;
+    this.gun.position.y -= this.sprintK * 0.04;
+    this.gun.rotation.set(this.kickRot + reloadDip * 0.5 + this.switchT * 0.6 - this.sprintK * 0.35, this.sway.x * 2 + this.sprintK * 0.55, reloadDip * 0.4 + this.sway.x * 1.5 + this.sprintK * 0.25);
     // melee: katana slash arc / rifle-butt bash
     const sw = this.swingT;
     if (blade) {
@@ -275,6 +326,11 @@ export class Viewmodel {
       this.gun.position.y -= this.grappleK * 0.07;
       this.gun.position.x += this.grappleK * 0.04;
       this.gun.rotation.z -= this.grappleK * 0.25;
+    }
+    if (this.reticle) {
+      const m = this.reticle.material as THREE.MeshBasicMaterial;
+      m.opacity = Math.min(1, Math.max(0, (this.ads - 0.55) / 0.35)) * (1 - this.switchT);
+      this.reticle.visible = m.opacity > 0.01;
     }
     if (this.weapon?.spin) this.weapon.spin.rotation.z += dt * (s.charge > 0 ? 20 * s.charge : 1);
     for (const g of this.weapon?.glows ?? []) g.scale.setScalar(1 + s.charge * 0.25);

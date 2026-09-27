@@ -86,7 +86,8 @@ export class NavGrid {
     }
     // edges
     const jumps: number[][] = this.nodes.map(() => []);
-    for (const a of this.nodes) {
+    for (let ai = 0; ai < this.nodes.length; ai++) {
+      const a = this.nodes[ai];
       for (let dj = -1; dj <= 1; dj++) {
         for (let di = -1; di <= 1; di++) {
           if (!di && !dj) continue;
@@ -117,7 +118,7 @@ export class NavGrid {
             }
             a.edges.push(bid);
             a.costs.push(cost);
-            jumps[this.nodes.indexOf(a)].push(jump);
+            jumps[ai].push(jump); // (was nodes.indexOf(a): quadratic over ~25k nodes)
           }
         }
       }
@@ -125,6 +126,25 @@ export class NavGrid {
     this.nodes.forEach((nd, k) => {
       if (jumps[k].some((v) => v)) nd.jump = Uint8Array.from(jumps[k]);
     });
+    // connected areas (undirected): a search between two different areas can never succeed —
+    // those failed searches expanded thousands of nodes and were most of the bot AI's CPU time
+    const N = this.nodes.length;
+    const parent = new Int32Array(N);
+    for (let k = 0; k < N; k++) parent[k] = k;
+    const find = (x: number): number => {
+      while (parent[x] !== x) {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+      }
+      return x;
+    };
+    for (let k = 0; k < N; k++) for (const e of this.nodes[k].edges) {
+      const ra = find(k);
+      const rb = find(e);
+      if (ra !== rb) parent[ra] = rb;
+    }
+    this.area = new Int32Array(N);
+    for (let k = 0; k < N; k++) this.area[k] = find(k);
     this.buildMs = performance.now() - t0;
   }
 
@@ -176,6 +196,8 @@ export class NavGrid {
     return best;
   }
 
+  /** connected-area id per node (see constructor) */
+  area = new Int32Array(0);
   private gScore = new Float32Array(0);
   private came = new Int32Array(0);
   private stamp = new Uint32Array(0);
@@ -183,8 +205,21 @@ export class NavGrid {
   private run = 0;
 
   /** A* from a to b. Returns node id path (inclusive) or null. */
-  path(a: number, b: number, maxExpand = 40000): number[] | null {
+  /** open-list heap storage, reused between searches (no per-call allocation) */
+  private heapF = new Float32Array(4096);
+  private heapI = new Int32Array(4096);
+
+  /**
+   * A* over the nav graph. Weighted (heuristic × 1.25): slightly greedy, expands several times fewer
+   * nodes than plain A* for near-identical routes — path search was the biggest cost of the bot AI.
+   */
+  /**
+   * `partial`: if the goal can't be reached (e.g. a platform you can drop from but not climb to),
+   * return the route to the reachable node closest to it instead of null.
+   */
+  path(a: number, b: number, maxExpand = 16000, partial = false): number[] | null {
     if (a < 0 || b < 0) return null;
+    if (this.area.length && this.area[a] !== this.area[b]) return null; // different areas: no route
     const N = this.nodes.length;
     if (this.gScore.length !== N) {
       this.gScore = new Float32Array(N);
@@ -194,77 +229,103 @@ export class NavGrid {
     }
     const run = ++this.run;
     const nodes = this.nodes;
+    const gScore = this.gScore;
+    const came = this.came;
+    const stamp = this.stamp;
+    const closed = this.closed;
     const goal = nodes[b];
-    const h = (id: number) => {
-      const nd = nodes[id];
-      return Math.hypot(nd.x - goal.x, nd.z - goal.z) + Math.abs(nd.y - goal.y) * 0.5;
-    };
-    // binary heap of [f, id]
-    const heapF: number[] = [];
-    const heapI: number[] = [];
-    const push = (f: number, id: number) => {
-      heapF.push(f);
-      heapI.push(id);
-      let k = heapF.length - 1;
+    const gx = goal.x;
+    const gy = goal.y;
+    const gz = goal.z;
+    const W = 1.25;
+    let hf = this.heapF;
+    let hi = this.heapI;
+    let n = 0;
+    const push = (f: number, id: number): void => {
+      if (n >= hf.length) {
+        const nf = new Float32Array(hf.length * 2);
+        const ni = new Int32Array(hi.length * 2);
+        nf.set(hf);
+        ni.set(hi);
+        hf = this.heapF = nf;
+        hi = this.heapI = ni;
+      }
+      let k = n++;
       while (k > 0) {
         const p = (k - 1) >> 1;
-        if (heapF[p] <= heapF[k]) break;
-        [heapF[p], heapF[k]] = [heapF[k], heapF[p]];
-        [heapI[p], heapI[k]] = [heapI[k], heapI[p]];
+        if (hf[p] <= f) break;
+        hf[k] = hf[p];
+        hi[k] = hi[p];
         k = p;
       }
+      hf[k] = f;
+      hi[k] = id;
     };
     const pop = (): number => {
-      const top = heapI[0];
-      const lf = heapF.pop()!;
-      const li = heapI.pop()!;
-      if (heapF.length) {
-        heapF[0] = lf;
-        heapI[0] = li;
+      const top = hi[0];
+      n--;
+      if (n > 0) {
+        const lf = hf[n];
+        const li = hi[n];
         let k = 0;
         for (;;) {
-          const l = k * 2 + 1;
-          const r = l + 1;
-          let m = k;
-          if (l < heapF.length && heapF[l] < heapF[m]) m = l;
-          if (r < heapF.length && heapF[r] < heapF[m]) m = r;
-          if (m === k) break;
-          [heapF[m], heapF[k]] = [heapF[k], heapF[m]];
-          [heapI[m], heapI[k]] = [heapI[k], heapI[m]];
-          k = m;
+          let c = k * 2 + 1;
+          if (c >= n) break;
+          if (c + 1 < n && hf[c + 1] < hf[c]) c++;
+          if (hf[c] >= lf) break;
+          hf[k] = hf[c];
+          hi[k] = hi[c];
+          k = c;
         }
+        hf[k] = lf;
+        hi[k] = li;
       }
       return top;
     };
-    this.gScore[a] = 0;
-    this.stamp[a] = run;
-    this.came[a] = -1;
-    push(h(a), a);
+    const h = (nd: NavNode): number => (Math.hypot(nd.x - gx, nd.z - gz) + Math.abs(nd.y - gy) * 0.5) * W;
+    gScore[a] = 0;
+    stamp[a] = run;
+    came[a] = -1;
+    push(h(nodes[a]), a);
     let expanded = 0;
-    while (heapF.length) {
+    let best = a;
+    let bestH = Infinity;
+    const route = (end: number): number[] => {
+      const out: number[] = [];
+      for (let c = end; c >= 0; c = came[c]) out.push(c);
+      return out.reverse();
+    };
+    const fail = (): number[] | null => (partial && best !== a ? route(best) : null);
+    while (n > 0) {
       const cur = pop();
-      if (cur === b) {
-        const out: number[] = [];
-        for (let c = b; c >= 0; c = this.came[c]) out.push(c);
-        return out.reverse();
-      }
-      if (this.closed[cur] === run) continue;
-      this.closed[cur] = run;
-      if (++expanded > maxExpand) return null;
+      if (cur === b) return route(b);
+      if (closed[cur] === run) continue;
+      closed[cur] = run;
+      if (++expanded > maxExpand) return fail();
       const nd = nodes[cur];
-      for (let e = 0; e < nd.edges.length; e++) {
-        const nb = nd.edges[e];
-        if (this.closed[nb] === run) continue;
-        const g = this.gScore[cur] + nd.costs[e];
-        if (this.stamp[nb] !== run || g < this.gScore[nb]) {
-          this.stamp[nb] = run;
-          this.gScore[nb] = g;
-          this.came[nb] = cur;
-          push(g + h(nb), nb);
+      if (partial) {
+        const hc = h(nd);
+        if (hc < bestH) {
+          bestH = hc;
+          best = cur;
+        }
+      }
+      const edges = nd.edges;
+      const costs = nd.costs;
+      const g0 = gScore[cur];
+      for (let e = 0; e < edges.length; e++) {
+        const nb = edges[e];
+        if (closed[nb] === run) continue;
+        const g = g0 + costs[e];
+        if (stamp[nb] !== run || g < gScore[nb]) {
+          stamp[nb] = run;
+          gScore[nb] = g;
+          came[nb] = cur;
+          push(g + h(nodes[nb]), nb);
         }
       }
     }
-    return null;
+    return fail();
   }
 
   edgeNeedsJump(from: number, to: number): boolean {

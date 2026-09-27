@@ -555,10 +555,11 @@ export class Bots {
       }
     }
     b.replanT -= 0.2;
-    if (!b.goal || b.goal.distanceTo(goal) > 2.5 || b.replanT <= 0 || b.pathIdx >= b.path.length) {
+    // (an empty path means the last search failed: wait for the timer instead of searching every tick)
+    if (!b.goal || b.goal.distanceTo(goal) > 2.5 || b.replanT <= 0 || (b.path.length > 0 && b.pathIdx >= b.path.length)) {
       b.goal = goal.clone();
       b.replanT = 1.2;
-      const path = this.nav.path(this.nav.nearest(f.body.pos), this.nav.nearest(goal));
+      const path = this.nav.path(this.nav.nearest(f.body.pos), this.nav.nearest(goal), undefined, true);
       b.path = path ?? [];
       b.pathIdx = Math.min(1, b.path.length);
     }
@@ -666,13 +667,13 @@ export class Bots {
     }
     if (!goal) return;
     const changed = !b.goal || b.goal.distanceTo(goal) > 4 || b.goalKind !== kind;
-    if (changed || b.replanT <= 0 || b.pathIdx >= b.path.length) {
+    if (changed || b.replanT <= 0 || (b.path.length > 0 && b.pathIdx >= b.path.length)) {
       b.goal = goal.clone();
       b.goalKind = kind;
       b.replanT = 2.5 + Math.random();
       const a = this.nav.nearest(f.body.pos);
       const z = this.nav.nearest(goal);
-      const path = this.nav.path(a, z);
+      const path = this.nav.path(a, z, undefined, true); // unreachable goal: head for the closest reachable spot
       b.path = path ?? [];
       b.pathIdx = Math.min(1, b.path.length);
     }

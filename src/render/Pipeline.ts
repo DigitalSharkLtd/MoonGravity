@@ -275,6 +275,9 @@ export class Pipeline {
     this.overlayScene = overlayScene;
     this.overlayCamera = overlayCamera;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
+    // release builds skip the per-program error log fetch: it blocks until each shader finishes
+    // compiling (defeating parallel compile) and showed up as ~30% of CPU while new programs linked
+    this.renderer.debug.checkShaderErrors = import.meta.env.DEV;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;

@@ -172,6 +172,7 @@ function backdropCamera(dt: number): void {
   let nx = 0.42;
   let ny = -0.62;
   let stageH = innerHeight * 0.62;
+  let feetY = innerHeight * 0.81;
   const ring = document.querySelector('.mg-stage-ring');
   const stage = ring?.closest('.mg-stage');
   if (ring && stage) {
@@ -179,13 +180,16 @@ function backdropCamera(dt: number): void {
     if (r.width > 0) {
       nx = ((r.left + r.width / 2) / innerWidth) * 2 - 1;
       ny = -(((r.top + r.height / 2) / innerHeight) * 2 - 1);
+      feetY = r.top + r.height / 2;
       stageH = stage.getBoundingClientRect().height;
     }
   }
   const ray = new THREE.Vector3(nx, ny, 0.5).unproject(camera).sub(camera.position).normalize();
   // distance so the hero (≈1.9 m) fills most of the stage height
   const ppm = innerHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
-  const dist = THREE.MathUtils.clamp((1.9 * ppm) / Math.max(120, stageH * 0.7), 3.2, 11);
+  // …but the helmet must stay clear of the top bar (wide screens made the hero touch the top edge)
+  const room = Math.max(120, feetY - Math.max(96, innerHeight * 0.14));
+  const dist = THREE.MathUtils.clamp(Math.max((2.0 * ppm) / Math.max(120, stageH * 0.7), (2.0 * ppm) / room), 3.2, 14);
   camera.position.copy(s.p).addScaledVector(ray, -dist);
   const hf = world.terrainData.hf;
   camera.position.y = Math.max(camera.position.y, hf.heightAt(camera.position.x, camera.position.z) + 0.6);
@@ -458,8 +462,8 @@ function frame(): void {
   last = now;
   if (state === 'match' && game) {
     const me = game.local;
-    // while dead: press the sealant key (or Enter) to switch hero
-    if (me && !me.alive && !game.heroSelectOpen && !ended && (input.wasPressed(settings.keys.sealant) || input.wasPressed('Enter'))) openHeroSelect();
+    // while dead: press the interact key (or Enter) to switch hero, as the death screen says
+    if (me && !me.alive && !game.heroSelectOpen && !ended && (input.wasPressed(settings.keys.interact) || input.wasPressed('Enter'))) openHeroSelect();
     game.update(dt);
     net?.update(dt);
     pipe.render(dt);

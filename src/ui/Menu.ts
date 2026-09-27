@@ -43,6 +43,10 @@ export interface MenuCallbacks {
 
 const BUILD = '0.1 · S1';
 
+/** relabels the main menu's full-screen item when the browser enters / leaves full screen (F11, Esc…) */
+let fsLabelSync: (() => void) | null = null;
+if (typeof document !== 'undefined') document.addEventListener('fullscreenchange', () => fsLabelSync?.());
+
 export class MenuSystem {
   private readonly root: HTMLElement;
   private readonly host: HTMLElement;
@@ -546,6 +550,24 @@ export class MenuSystem {
       b.addEventListener('click', () => this.cb.installApp?.());
       return b;
     };
+    // full screen toggle (browser full screen; F11 also works)
+    const fsItem = (() => {
+      const de = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
+      if (!document.fullscreenEnabled && !de.webkitRequestFullscreen) return null;
+      const label = span('mg-nav-label', '');
+      const b = h('button', { class: 'mg-nav-item is-small', type: 'button', 'data-snd': 'click' }, span('mg-nav-bar'), ico(UI.monitor, 'mg-nav-ico'), span('mg-nav-txt', label));
+      const sync = () => {
+        label.textContent = t(document.fullscreenElement ? 'nav.windowed' : 'nav.fullscreen');
+      };
+      sync();
+      fsLabelSync = sync;
+      b.addEventListener('click', () => {
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+        else if (de.requestFullscreen) void de.requestFullscreen({ navigationUI: 'hide' }).catch(() => undefined);
+        else de.webkitRequestFullscreen?.();
+      });
+      return b;
+    })();
     const navItem = (id: ScreenId, label: string, sub: string, icon: string, cls = '') => {
       const b = h(
         'button',
@@ -567,6 +589,7 @@ export class MenuSystem {
       navItem('profile', t('nav.profile'), t('nav.profile.sub'), UI.profile),
       navItem('settings', t('nav.settings'), t('nav.settings.sub'), UI.gear),
       navItem('credits', t('nav.credits'), '', UI.star, 'is-small'),
+      fsItem,
       this.installItem(),
     );
 

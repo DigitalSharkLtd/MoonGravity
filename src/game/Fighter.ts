@@ -132,6 +132,8 @@ export class Fighter {
   alive = false;
   respawnT = 0;
   spawnProtect = 0;
+  /** false until the first spawn: the HUD shows a deploy screen, not a death screen */
+  spawnedOnce = false;
   health = 100;
   maxHealth = 100;
   suit = 100;
@@ -276,6 +278,8 @@ export class Fighter {
 
   /** Reset vitals & gear at spawn. */
   spawn(pos: THREE.Vector3, yaw: number): void {
+    this.spawnedOnce = true;
+    this.rope = null;
     this.alive = true;
     this.health = this.maxHealth;
     this.suit = this.maxSuit;

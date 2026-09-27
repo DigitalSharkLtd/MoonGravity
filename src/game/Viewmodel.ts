@@ -347,6 +347,8 @@ export class Viewmodel {
     let gripL: THREE.Vector3;
     if (twin) gripL = _e.copy(gripR).add(_f.set(-0.36, 0, 0));
     else gripL = _e.copy(gp).addScaledVector(fwd, fg).addScaledVector(gup, blade ? -0.08 : -0.045).add(_f.set(-0.01, 0, 0));
+    // aiming through the optic: the support hand slides back and under the handguard, out of the sight picture
+    if (!blade && !twin && this.ads > 0.01) gripL.addScaledVector(fwd, -0.08 * this.ads).addScaledVector(gup, -0.035 * this.ads).add(_f.set(0.01 * this.ads, 0, 0));
     if (this.castT > 0) gripL.add(_f.set(-0.08 * this.castT, 0.1 * this.castT, 0.05 * this.castT));
     if (reloadDip > 0) gripL.addScaledVector(gup, -0.12 * reloadDip).addScaledVector(fwd, -0.12 * reloadDip);
     if (!blade && sw > 0) gripL.z -= Math.sin((1 - sw) * Math.PI) * 0.18;

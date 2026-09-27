@@ -208,7 +208,7 @@ export class Game {
     f.owner = owner;
     this.attachModel(f);
     this.fighters.push(f);
-    f.respawnT = control === 'remote' ? 999 : 0.2 + Math.random() * 0.4;
+    f.respawnT = control === 'remote' ? 999 : control === 'local' ? 0 : 0.2 + Math.random() * 0.4;
     return f;
   }
 
@@ -1288,6 +1288,9 @@ export class Game {
 
   /** grapple cable from the wrist launcher to the anchor */
   private updateRope(f: Fighter): void {
+    // simulated fighters draw the cable only while the hook is attached (a stale f.rope survived
+    // respawns and resets and left a cable hanging across the map); remote ones use the replicated anchor
+    if (f.control !== 'remote' && !f.body.grapple) f.rope = null;
     const anchor = f.body.grapple ? f.body.grapple.anchor : f.rope;
     let rope = this.ropes.get(f.id);
     if (!anchor || !f.alive) {
@@ -1448,7 +1451,7 @@ export class Game {
     }
     if (!me) return s;
     const b = me.body;
-    s.alive = me.alive;
+    s.alive = me.alive || !me.spawnedOnce; // not deployed yet ≠ dead (no death screen at match start)
     s.health = me.health;
     s.suit = me.maxSuit > 0 ? (me.suit / me.maxSuit) * 100 : 100;
     s.oxygen = me.oxygen;

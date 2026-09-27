@@ -6,7 +6,7 @@ export const MOON_G = 1.62;
  *  long floaty arcs (projectiles and debris keep true lunar ballistics) */
 export const BODY_G = 5.5;
 /** hold the jump key this long to light the jetpack (a tap is a plain jump) */
-export const JET_HOLD = 1.0;
+export const JET_HOLD = 0.5;
 
 export type ColliderKind = 'box' | 'cyl' | 'sphere';
 

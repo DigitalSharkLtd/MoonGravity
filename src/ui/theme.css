@@ -1726,10 +1726,11 @@ html {
 
 .mg-main-stage {
   position: absolute;
-  right: 5%;
+  /* hero (and ring) stand left of the name block, never behind it */
+  right: 38%;
   top: 1rem;
   bottom: 13rem;
-  width: 72%;
+  width: 62%;
 }
 
 .mg-main-stage .mg-stage-art,

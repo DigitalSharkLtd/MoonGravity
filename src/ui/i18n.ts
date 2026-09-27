@@ -66,6 +66,8 @@ const RU = {
   'nav.settings.sub': 'Графика, звук, управление',
   'nav.credits': 'Авторы',
   'nav.install': 'Установить приложение',
+  'nav.fullscreen': 'Полный экран',
+  'nav.windowed': 'Оконный режим',
   'main.selectedHero': 'Ваш герой',
   'main.changeHero': 'Сменить героя',
   'main.quick': 'Быстрая игра',
@@ -596,6 +598,8 @@ const EN: Record<StrKey, string> = {
   'nav.settings.sub': 'Graphics, audio, controls',
   'nav.credits': 'Credits',
   'nav.install': 'Install app',
+  'nav.fullscreen': 'Full screen',
+  'nav.windowed': 'Windowed',
   'main.selectedHero': 'Your hero',
   'main.changeHero': 'Change hero',
   'main.quick': 'Quick play',
@@ -1554,7 +1558,7 @@ export function keyLabel(code: string): string {
 // loading-screen tips
 
 const TIPS: Bi[] = [
-  { ru: 'Короткое нажатие пробела — прыжок, удержание дольше секунды — реактивный ранец. Shift — бег.', en: 'Tap Space to jump, hold it for over a second to fire the jetpack. Shift sprints.' },
+  { ru: 'Короткое нажатие пробела — прыжок, удержание дольше полсекунды — реактивный ранец. Shift — бег.', en: 'Tap Space to jump, hold it for over half a second to fire the jetpack. Shift sprints.' },
   { ru: 'Магнитные ботинки (F) выключены при высадке: включите их, чтобы ходить по стенам и потолкам.', en: 'Mag-boots (F) start switched off: turn them on to walk on walls and ceilings.' },
   { ru: 'Магнитные ботинки [F] позволяют ходить по металлическим стенам, фасадам и даже потолкам.', en: 'Magnetic boots [F] let you walk on metal walls, facades and even ceilings.' },
   { ru: 'Если скафандр повреждён больше чем наполовину, начинается утечка кислорода. Латайте его герметиком [H].', en: 'Once your suit is more than half damaged it starts leaking oxygen. Patch it with sealant [H].' },

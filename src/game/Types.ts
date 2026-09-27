@@ -338,7 +338,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     ],
   },
   blade: {
-    id: 'blade', role: 'melee', passive: 'moonstep', mass: 1.0, health: 225, suit: 100, speed: 5.9, weapon: 'blade', ability1: ab('lunge', 6), ability2: ab('deflect', 9, 1.8), ultimate: ab('moonblade', 0, 6), ultCost: 1900, sealants: 2, color: '#39e3a8', visor: '#b8ffe6', difficulty: 2,
+    id: 'blade', role: 'melee', passive: 'moonstep', mass: 1.0, health: 250, suit: 100, speed: 6.2, weapon: 'blade', ability1: ab('lunge', 5), ability2: ab('deflect', 9, 1.8), ultimate: ab('moonblade', 0, 6), ultCost: 1900, sealants: 2, color: '#39e3a8', visor: '#b8ffe6', difficulty: 2,
     builds: [
       B('duelist', 'Дуэлянт', 'Duelist', 'Удары на 10% быстрее, устранение мгновенно перезаряжает выпад.', 'Swings 10% faster; eliminations reset Lunge.', 1, { fireRate: 1.1, flags: ['lungeReset'] }),
       B('guardian', 'Страж', 'Guardian', 'Отражение длится дольше, чаще перезаряжается и лечит вас.', 'Deflect lasts longer, recharges faster and heals you.', 3, { cd2: 0.85, flags: ['deflectHeal'] }),
@@ -362,7 +362,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     ],
   },
   forge: {
-    id: 'forge', role: 'engineer', passive: 'fieldrepair', mass: 1.2, health: 225, suit: 125, speed: 5.1, weapon: 'riveter', ability1: ab('servitor', 14, 25, 2), ability2: ab('turret', 16, 30), ultimate: ab('forcefield', 0, 7), ultCost: 2100, sealants: 3, color: '#ff9f43', visor: '#ffd08a', difficulty: 2,
+    id: 'forge', role: 'engineer', passive: 'fieldrepair', mass: 1.2, health: 225, suit: 125, speed: 5.1, weapon: 'riveter', ability1: ab('servitor', 17, 18, 2), ability2: ab('turret', 16, 30), ultimate: ab('forcefield', 0, 7), ultCost: 2100, sealants: 3, color: '#ff9f43', visor: '#ffd08a', difficulty: 2,
     builds: [
       B('mechanic', 'Механик', 'Mechanic', 'Турель работает 45 с вместо 30, сервиторы прочнее.', 'Turret lasts 45 s instead of 30; tougher servitors.', 1, { flags: ['toughServitors'] }),
       B('fortifier', 'Фортификатор', 'Fortifier', 'Вместо сервиторов — баррикады-укрытия (до двух сразу), перезарядка быстрее.', 'Barricades instead of servitors (up to two at once), faster cooldown.', 3, { swap1: 'barricade', cd1: 0.6 }),
@@ -370,7 +370,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     ],
   },
   hive: {
-    id: 'hive', role: 'engineer', passive: 'dronelink', mass: 1.0, health: 200, suit: 100, speed: 5.3, weapon: 'burst', ability1: ab('huntdrone', 12, 12), ability2: ab('spotdrone', 14, 10), ultimate: ab('kamikaze', 0, 0), ultCost: 2000, sealants: 2, color: '#e6e14d', visor: '#fff59a', difficulty: 2,
+    id: 'hive', role: 'engineer', passive: 'dronelink', mass: 1.0, health: 200, suit: 100, speed: 5.3, weapon: 'burst', ability1: ab('huntdrone', 15, 12), ability2: ab('spotdrone', 14, 10), ultimate: ab('kamikaze', 0, 0), ultCost: 2000, sealants: 2, color: '#e6e14d', visor: '#fff59a', difficulty: 2,
     builds: [
       B('hunter', 'Охотник', 'Hunter', 'Дрон-охотник прочнее, живёт дольше и бьёт сильнее.', 'Hunter Drone is tougher, lasts longer and hits harder.', 1, { flags: ['strongHunter'] }),
       B('overseer', 'Надзиратель', 'Overseer', 'Дрон-наводчик охватывает больший радиус и замедляет врагов.', 'Spotter Drone covers a wider area and slows enemies.', 3, { flags: ['slowSpot'] }),

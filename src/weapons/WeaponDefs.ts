@@ -335,7 +335,7 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     id: 'blade',
     slot: 'primary',
     kind: 'melee',
-    damage: 58,
+    damage: 64, // (balance: was 58)
     headMul: 1.2,
     suitMul: 1.2,
     interval: 0.42,

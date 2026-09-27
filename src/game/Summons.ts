@@ -309,7 +309,7 @@ export class Summons {
   private tickTurret(s: Summon, dt: number, owner: Fighter | null): void {
     const muzzle = _v.copy(s.pos).add(new THREE.Vector3(0, 0.85, 0));
     s.fireT -= dt;
-    const t = this.nearestVisible(s, owner, 38, muzzle);
+    const t = this.nearestVisible(s, owner, 32, muzzle); // (balance: was 38 m)
     if (t) {
       const desired = Math.atan2(-(t.body.pos.x - s.pos.x), -(t.body.pos.z - s.pos.z));
       let dy = desired - s.yaw;
@@ -318,7 +318,7 @@ export class Summons {
       s.yaw += THREE.MathUtils.clamp(dy, -4 * dt, 4 * dt);
       if (Math.abs(dy) < 0.2 && s.fireT <= 0) {
         s.fireT = 0.14;
-        this.shoot(s, muzzle.clone(), t, 11, 0.04, 0xff9f43, owner);
+        this.shoot(s, muzzle.clone(), t, 8, 0.04, 0xff9f43, owner); // (balance: was 11 → ~57 dps)
       }
     } else s.yaw += dt * 0.6;
   }
@@ -327,7 +327,9 @@ export class Summons {
     const g = this.game;
     let t = s.target >= 0 ? g.fighterById(s.target) : null;
     if (!t || !t.alive || (owner && !g.areEnemies(owner, t))) {
-      t = this.nearestVisible(s, owner, 45, s.pos) ?? this.enemiesOf(owner, s.team).sort((a, b) => a.body.pos.distanceTo(s.pos) - b.body.pos.distanceTo(s.pos))[0] ?? null;
+      // (balance) hunt only enemies within 45 m of the owner instead of crossing the whole map
+      const home = owner ? owner.body.pos : s.pos;
+      t = this.nearestVisible(s, owner, 45, s.pos) ?? this.enemiesOf(owner, s.team).filter((e) => e.body.pos.distanceTo(home) < 45).sort((a, b) => a.body.pos.distanceTo(s.pos) - b.body.pos.distanceTo(s.pos))[0] ?? null;
       s.target = t ? t.id : -1;
     }
     // hover ~3.5 m above & 6 m from the target (or near the owner)
@@ -345,7 +347,7 @@ export class Summons {
       s.yaw = Math.atan2(-(t.body.pos.x - s.pos.x), -(t.body.pos.z - s.pos.z));
       if (s.fireT <= 0 && t.body.pos.distanceTo(s.pos) < 28 && g.world.physics.visible(s.pos, t.hitbox(1, _v))) {
         s.fireT = 0.16;
-        this.shoot(s, s.pos.clone(), t, s.flags.includes('strongHunter') ? 10 : 8, 0.05, 0xe6e14d, owner);
+        this.shoot(s, s.pos.clone(), t, s.flags.includes('strongHunter') ? 8 : 6, 0.05, 0xe6e14d, owner); // (balance: was 10 / 8)
       }
     }
   }

@@ -58,7 +58,7 @@ const SERVITOR_DEF: HeroDef = {
   weapon: 'pulse',
   sealants: 0,
   // two servitors used to out-damage a DPS hero (2 × 69 dps): toned down to ~50 dps each
-  builds: [{ id: 'servitor', name: { ru: 'Сервитор', en: 'Servitor' }, desc: { ru: '', en: '' }, unlock: 1, mods: { damage: 0.42, fireRate: 0.8 } }],
+  builds: [{ id: 'servitor', name: { ru: 'Сервитор', en: 'Servitor' }, desc: { ru: '', en: '' }, unlock: 1, mods: { damage: 0.34, fireRate: 0.8 } }], // (balance: was 0.42)
 };
 const SERVITOR_TOUGH_DEF: HeroDef = { ...SERVITOR_DEF, health: 190, suit: 90 };
 const GRAPPLE_RANGE = 42;
@@ -335,7 +335,7 @@ export class Game {
     f.body.standHeight = f.body.height = 1.7;
     f.body.radius = 0.38;
     f.summonOf = owner.id;
-    f.summonLife = 25;
+    f.summonLife = owner.abilities.find((a) => a.id === 'servitor')?.duration || 18; // from the hero's ability (was a hard-coded 25 s)
     f.owner = owner.owner;
     f.sealants = 0;
     const teamColor = this.modeInfo.teams ? TEAM_COLORS[f.team]?.main ?? null : null;

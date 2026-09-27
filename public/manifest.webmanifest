@@ -1,9 +1,9 @@
 {
   "id": "./",
-  "name": "MOON GRAVITY — война за палладий",
+  "name": "MOON GRAVITY — The Palladium War",
   "short_name": "Moon Gravity",
-  "description": "Стилизованный sci-fi hero-шутер на Луне: две военные базы сражаются за палладиевый рудник. Лунная гравитация, магнитные ботинки, скафандры, дроны и тактические ядерные ракеты.",
-  "lang": "ru",
+  "description": "A stylized sci-fi hero shooter on the Moon: two military bases fight over a palladium mine. Low gravity, mag-boots, pressure suits, drones and tactical nukes. English and Russian.",
+  "lang": "en",
   "dir": "ltr",
   "start_url": "./?source=pwa",
   "scope": "./",
@@ -22,6 +22,6 @@
     { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ],
   "shortcuts": [
-    { "name": "Быстрая игра", "short_name": "Играть", "url": "./?source=pwa&quick=1", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Quick Play", "short_name": "Play", "url": "./?source=pwa&quick=1", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

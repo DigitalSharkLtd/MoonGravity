@@ -142,12 +142,12 @@ const V3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 function mats(hero: ModelVariant, main: number, accent: number, visor: number): Record<MatKind, THREE.Material> {
   const key = hero + '|' + main.toString(16) + '|' + accent.toString(16);
   const fabric = fabricSet();
-  const suitCol = hero === 'phantom' ? 0x3a3f4c : hero === 'blade' ? 0x2f3a3c : hero === 'forge' ? 0xe6dccb : hero === 'hive' ? 0xd9d6c8 : 0xf0eee9;
+  const suitCol = hero === 'phantom' ? 0x3a3f4c : hero === 'blade' ? 0x2f3a3c : hero === 'forge' ? 0xd2c8b6 : hero === 'hive' ? 0xc9c6b8 : 0xd9d6cf;
   return {
     suit:
       hero === 'servitor'
         ? pbr('h-suit|' + key, { color: 0x4a505c, set: brushedSet(26), repeat: 2, roughness: 1.1, metalness: 0.85, style: { rim: 0.3 } })
-        : pbr('h-suit|' + key, { color: suitCol, set: fabric, repeat: 3, roughness: 1, metalness: 0, physical: { sheen: 0.6, sheenColor: 0xdfe8ff, sheenRoughness: 0.5 }, style: { rim: 0.35 } }),
+        : pbr('h-suit|' + key, { color: suitCol, set: fabric, repeat: 3, roughness: 1, metalness: 0, physical: { sheen: 0.35, sheenColor: 0xdfe8ff, sheenRoughness: 0.6 }, style: { rim: 0.3 } }),
     armor: pbr('h-armor|' + key, { color: main, set: panelSet(21, { depth: 3, wear: 0.6, stencil: false }), repeat: 2, roughness: 0.9, metalness: 1, physical: { clearcoat: 0.9, clearcoatRoughness: 0.18 }, style: { rim: 0.4 } }),
     accent: pbr('h-accent|' + key, { color: accent, set: panelSet(22, { depth: 2, wear: 0.4, stencil: false }), repeat: 2, roughness: 0.8, metalness: 1, physical: { clearcoat: 1, clearcoatRoughness: 0.12 }, style: { rim: 0.4 } }),
     dark: pbr('h-dark|' + key, { color: 0x2a2e38, set: brushedSet(24), repeat: 2, roughness: 1.3, metalness: 0.6, style: { rim: 0.3 } }),

@@ -264,6 +264,19 @@ export class Bots {
     // ---- movement ----
     const wish = _w.set(0, 0, 0);
     if (moveDir) wish.copy(moveDir);
+    else if (b.goal && b.goal.distanceTo(body.pos) > 1.6) {
+      // no nav path (other floor / unconnected ledge): steer straight at the goal and use
+      // the jetpack for height differences
+      wish.set(b.goal.x - body.pos.x, 0, b.goal.z - body.pos.z);
+      if (wish.lengthSq() > 1e-4) wish.normalize();
+      const dy = b.goal.y - body.pos.y;
+      const dh = Math.hypot(b.goal.x - body.pos.x, b.goal.z - body.pos.z);
+      // hop up short ledges only (a few metres, close by) — never climb towers blind
+      if (dy > 0.8 && dy < 5 && dh < 12 && body.jetFuel > 0.25) {
+        if (body.grounded) it.jumpPressed = true;
+        it.jump = true;
+      }
+    }
     const holdingCover = b.coverT > 0 && b.goalKind === 'cover';
     if (b.coverT > 0) b.coverT -= dt;
     if (visible && target && !holdingCover) {

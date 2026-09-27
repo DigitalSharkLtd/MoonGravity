@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { toonMat, glowMat } from '../render/Toon';
 import { WeaponId, WEAPONS } from './WeaponDefs';
 import { hazardTex } from '../render/Textures';
@@ -263,8 +264,42 @@ export function buildWeaponModel(id: WeaponId, tint?: number): WeaponModel {
     }
   }
   g.add(muzzle);
+  mergeStatic(g, glows, spin);
   g.traverse((o) => {
     if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true;
   });
   return { group: g, muzzle, glows, spin };
+}
+
+/**
+ * Draw-call diet: bake every static part into one mesh per material (a gun goes from
+ * ~20 draw calls to ~4). Animated parts (spin drum, glow cells that pulse) stay separate.
+ */
+function mergeStatic(g: THREE.Group, glows: THREE.Mesh[], spin?: THREE.Object3D): void {
+  g.updateMatrixWorld(true);
+  const keep = new Set<THREE.Object3D>(glows);
+  if (spin) spin.traverse((o) => keep.add(o));
+  const byMat = new Map<THREE.Material, { geos: THREE.BufferGeometry[]; meshes: THREE.Mesh[]; layers: number }>();
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || keep.has(m) || Array.isArray(m.material)) return;
+    const mat = m.material as THREE.Material;
+    let e = byMat.get(mat);
+    if (!e) byMat.set(mat, (e = { geos: [], meshes: [], layers: m.layers.mask }));
+    let geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    for (const k of Object.keys(geo.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') geo.deleteAttribute(k);
+    if (!geo.getAttribute('uv')) geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(geo.getAttribute('position').count * 2), 2));
+    geo = geo.applyMatrix4(m.matrixWorld);
+    e.geos.push(geo);
+    e.meshes.push(m);
+  });
+  for (const [mat, e] of byMat) {
+    if (e.meshes.length < 2) continue;
+    const merged = mergeGeometries(e.geos, false);
+    if (!merged) continue;
+    for (const m of e.meshes) m.parent?.remove(m);
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.layers.mask = e.layers;
+    g.add(mesh);
+  }
 }

@@ -85,14 +85,18 @@ export class TerrainMesh {
         const geo = this.buildChunk(i0, j0, i1, j1);
         const mesh = new THREE.Mesh(geo, this.material);
         mesh.receiveShadow = true;
-        mesh.castShadow = true;
+        // shadows come from the half-resolution proxy below (one draw per cascade)
+        mesh.castShadow = false;
         mesh.matrixAutoUpdate = false;
         this.group.add(mesh);
         this.chunks.push({ mesh, i0, j0, i1, j1 });
       }
     }
     this.farMesh = this.buildFar(def);
+    this.farMesh.castShadow = false;
     this.group.add(this.farMesh);
+    this.shadowProxy = this.buildShadowProxy();
+    this.group.add(this.shadowProxy);
   }
 
   private patchMaterial(mat: THREE.MeshStandardMaterial, detail: boolean): void {
@@ -266,8 +270,61 @@ export class TerrainMesh {
     }
   }
 
+  /** Shadow caster only: the heightfield at half resolution on the shadow-only layer. */
+  shadowProxy: THREE.Mesh;
+  private static readonly PROXY_STEP = 2;
+
+  private buildShadowProxy(): THREE.Mesh {
+    const hf = this.data.hf;
+    const st = TerrainMesh.PROXY_STEP;
+    const cw = Math.floor((hf.nx - 1) / st) + 1;
+    const ch = Math.floor((hf.nz - 1) / st) + 1;
+    const pos = new Float32Array(cw * ch * 3);
+    this.fillProxy(pos, cw, ch);
+    const idx: number[] = [];
+    for (let j = 0; j < ch - 1; j++) {
+      for (let i = 0; i < cw - 1; i++) {
+        const a = j * cw + i;
+        idx.push(a, a + cw + 1, a + 1, a, a + cw, a + cw + 1);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
+    mesh.castShadow = true;
+    mesh.receiveShadow = false;
+    mesh.matrixAutoUpdate = false;
+    mesh.frustumCulled = false;
+    mesh.layers.set(5); // LAYER_SHADOW_ONLY: drawn by the sun's shadow cameras only
+    mesh.userData.proxy = { cw, ch };
+    return mesh;
+  }
+
+  private fillProxy(pos: Float32Array, cw: number, ch: number): void {
+    const hf = this.data.hf;
+    const st = TerrainMesh.PROXY_STEP;
+    for (let j = 0; j < ch; j++) {
+      for (let i = 0; i < cw; i++) {
+        const gi = Math.min(hf.nx - 1, i * st);
+        const gj = Math.min(hf.nz - 1, j * st);
+        const o = (j * cw + i) * 3;
+        pos[o] = hf.x0 + gi * hf.cell;
+        // sunk a hair so the proxy never shadows the full-res surface it approximates
+        pos[o + 1] = hf.get(gi, gj) - 0.12;
+        pos[o + 2] = hf.z0 + gj * hf.cell;
+      }
+    }
+  }
+
   /** Re-upload chunks overlapping a deformed index box. */
   refresh(box: { i0: number; i1: number; j0: number; j1: number }): void {
+    const pg = this.shadowProxy.geometry;
+    const pp = pg.getAttribute('position') as THREE.BufferAttribute;
+    const { cw, ch } = this.shadowProxy.userData.proxy as { cw: number; ch: number };
+    this.fillProxy(pp.array as Float32Array, cw, ch);
+    pp.needsUpdate = true;
     for (const c of this.chunks) {
       if (c.i1 < box.i0 - 1 || c.i0 > box.i1 + 1 || c.j1 < box.j0 - 1 || c.j0 > box.j1 + 1) continue;
       const g = c.mesh.geometry;

@@ -192,7 +192,8 @@ export class Fighter {
     this.applyBuild(this.buildId);
     this.body.standHeight = this.hero === 'reactor' ? 2.02 : 1.85;
     this.body.height = this.body.standHeight;
-    this.body.radius = this.hero === 'reactor' ? 0.5 : 0.42;
+    // tank is visually bigger but keeps a doorway-friendly capsule (hitboxes are scaled instead)
+    this.body.radius = this.hero === 'reactor' ? 0.45 : 0.42;
   }
 
   /** Apply a build (talent path) — multipliers & swaps. */

@@ -381,8 +381,18 @@ export class Pipeline {
     return this.grade.mat.uniforms;
   }
 
+  /** per-frame totals across every pass (renderer.info is reset once per frame, not per pass) */
+  stats = { calls: 0, triangles: 0, ms: 0 };
+
   render(dt: number): void {
+    const info = this.renderer.info;
+    info.autoReset = false;
+    info.reset();
+    const t0 = performance.now();
     this.grade.mat.uniforms.uTime.value += dt;
     this.composer.render(dt);
+    this.stats.calls = info.render.calls;
+    this.stats.triangles = info.render.triangles;
+    this.stats.ms = performance.now() - t0;
   }
 }

@@ -348,12 +348,14 @@ export class Viewmodel {
     if (twin) gripL = _e.copy(gripR).add(_f.set(-0.36, 0, 0));
     else gripL = _e.copy(gp).addScaledVector(fwd, fg).addScaledVector(gup, blade ? -0.08 : -0.045).add(_f.set(-0.01, 0, 0));
     // aiming through the optic: the support hand slides back and under the handguard, out of the sight picture
-    if (!blade && !twin && this.ads > 0.01) gripL.addScaledVector(fwd, -0.08 * this.ads).addScaledVector(gup, -0.035 * this.ads).add(_f.set(0.01 * this.ads, 0, 0));
+    if (!blade && !twin && this.ads > 0.01) gripL.addScaledVector(fwd, -0.1 * this.ads).addScaledVector(gup, -0.14 * this.ads).add(_f.set(0.02 * this.ads, 0, 0));
     if (this.castT > 0) gripL.add(_f.set(-0.08 * this.castT, 0.1 * this.castT, 0.05 * this.castT));
     if (reloadDip > 0) gripL.addScaledVector(gup, -0.12 * reloadDip).addScaledVector(fwd, -0.12 * reloadDip);
     if (!blade && sw > 0) gripL.z -= Math.sin((1 - sw) * Math.PI) * 0.18;
     if (this.grappleK > 0.01) gripL.lerp(_f.set(-0.17, -0.1, -0.36), this.grappleK);
     this.aimArm(this.armL, gripL, _d.set(twin ? -0.32 : -0.42, -0.6, 0.68), gq);
+    // fully aimed: the support arm is out of the sight picture entirely
+    this.armL.visible = blade || twin || this.ads < 0.85;
   }
 
   /** place a forearm: hand at `at`, sleeve running along `back` (camera space), glove rolled like the gun */

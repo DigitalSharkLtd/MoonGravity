@@ -348,6 +348,10 @@ const firstGesture = (e: Event): void => {
   removeEventListener('keydown', firstGesture, true);
   if (settings.fullscreen && !isFullscreen()) enterFullscreen();
 };
+// the browser's own banner talks about holding Esc (Esc is the pause key here): say how to leave with F10
+document.addEventListener('fullscreenchange', () => {
+  if (isFullscreen()) menu.toast(settings.language === 'ru' ? 'Полный экран · F10 — выйти' : 'Full screen · F10 to exit', 'good');
+});
 addEventListener('pointerdown', firstGesture, true);
 addEventListener('keydown', firstGesture, true);
 addEventListener('keydown', (e) => {

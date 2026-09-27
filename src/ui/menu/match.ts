@@ -388,7 +388,7 @@ export function buildPause(ctx: MenuCtx, info: PauseInfo, act: { resume(): void;
     ? btn(t(isFullscreen() ? 'pause.windowed' : 'pause.fullscreen'), () => {
         toggleFullscreen();
         ctx.go('pause');
-      }, { kind: 'ghost', icon: UI.monitor, big: true })
+      }, { kind: 'ghost', icon: UI.monitor, big: true, kbd: 'F10' })
     : null;
   const leaveWrap = div('mg-pause-leave');
   const renderLeave = (confirming: boolean) => {

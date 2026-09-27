@@ -442,6 +442,7 @@ void (async () => {
     HERO_ORDER,
     start: (mode: ModeId, hero: HeroId) => startMatch(mode, hero, 'offline', null),
     online: (mode: ModeId, hero: HeroId, join?: string) => playOnline(mode, hero, join),
+    audio,
     get net() {
       return net;
     },

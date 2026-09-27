@@ -37,8 +37,10 @@ export const NET_TIMING = {
   iceGatherTimeoutMs: 2500,
   /** RTT ping period on the reliable channel. */
   pingIntervalMs: 2000,
-  /** Link is closed when nothing (not even a pong) arrived for this long. */
-  inactivityTimeoutMs: 8000,
+  /** Link is closed when nothing (not even a pong) arrived for this long. Generous: a joiner's
+   *  main thread stalls for seconds while its match loads (models, shader compiles); real network
+   *  loss is caught sooner by connectionState ('disconnected' grace / 'failed'). */
+  inactivityTimeoutMs: 20000,
   /** connectionState 'disconnected' longer than this → link closed. */
   disconnectGraceMs: 5000,
   /** Unreliable sends are dropped while the fast channel has more than this buffered. */

@@ -107,7 +107,8 @@ export class Abilities {
         return true;
       }
       case 'frag': {
-        const vel = look.clone().multiplyScalar(17).addScaledVector(b.up, 3.5).addScaledVector(b.vel, 0.6);
+        // thrown along the crosshair with a slight lob (the old +3.5 m/s lift sailed over targets and burst mid-air)
+        const vel = look.clone().multiplyScalar(20).addScaledVector(b.up, 1.2).addScaledVector(b.vel, 0.6);
         const p = g.combat.spawn('frag', f, eye.clone().addScaledVector(look, 0.5), vel, 'frag');
         if (f.flags.has('cluster')) p.cluster = true;
         g.sound('grenade_throw', f, 1);

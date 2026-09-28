@@ -565,8 +565,9 @@ export class Body {
               land.y += r + 0.08;
               if (!this.world.pointBlocked(land, r * 0.9)) {
                 land.y += 1.0;
-                if (!this.world.pointBlocked(land, r * 0.85)) {
-                  this.mantle = { from: this.pos.clone(), to: hit.point.clone().addScaledVector(fh, 0.2), t: 0, dur: 0.24 + lift * 0.09 };
+                const to = hit.point.clone().addScaledVector(fh, 0.2);
+                if (!this.world.pointBlocked(land, r * 0.85) && this.mantleClear(to)) {
+                  this.mantle = { from: this.pos.clone(), to, t: 0, dur: 0.24 + lift * 0.09 };
                   this.vel.set(0, 0, 0);
                   ev.mantled = true;
                 }
@@ -776,6 +777,27 @@ export class Body {
   private pivotMid = false;
   private lastAirSpeed = 0;
   private wallLock = 0;
+
+  /**
+   * The vault is kinematic (no collisions on the way), so its arc — straight up above us, then over
+   * to the ledge — must be open. The ledge probe starts ~0.9 m ahead, i.e. past a thin wall: without
+   * this check you could vault straight through walls, glass and railings onto whatever stood behind.
+   */
+  private mantleClear(to: THREE.Vector3): boolean {
+    const r = this.radius;
+    const head = _t1.copy(this.pos).addScaledVector(this.up, this.height - r);
+    const rise = to.y + this.standHeight * 0.8 - r - head.y;
+    if (rise > 0 && this.world.raycast(head, _t2.set(0, 1, 0), rise + r * 0.5, { forMove: true })) return false;
+    const d = _t2.set(to.x - this.pos.x, 0, to.z - this.pos.z);
+    const len = d.length();
+    if (len < 1e-3) return true;
+    d.divideScalar(len);
+    for (const h of [r + 0.06, 1.0]) {
+      head.set(this.pos.x, to.y + h, this.pos.z);
+      if (this.world.raycast(head, d, len, { forMove: true })) return false;
+    }
+    return true;
+  }
 
   /** does a metal wall with this normal continue above the feet (a real wall, not a curb)? */
   private tallMetalWall(n: THREE.Vector3, up: THREE.Vector3): boolean {

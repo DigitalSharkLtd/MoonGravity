@@ -150,8 +150,19 @@ export function block(k: Kit, s: BlockSpec): void {
           ['w', h[0], h[1], h[0], h[3]],
           ['e', h[2], h[1], h[2], h[3]],
         ];
-        for (const [sd, ax, az, bx, bz] of edges) {
+        // the two edges along the run stop 1.3 m short of the arrival end: at the top you can step off
+        // sideways (a landing squeezed against a wall used to be a dead end behind the railings)
+        const lat = (sd: Side): boolean => (arrive === 'e' || arrive === 'w' ? sd === 's' || sd === 'n' : sd === 'w' || sd === 'e');
+        for (const [sd, ax0, az0, bx0, bz0] of edges) {
           if (sd === arrive) continue;
+          let [ax, az, bx, bz] = [ax0, az0, bx0, bz0];
+          if (lat(sd)) {
+            if (arrive === 'e') bx -= 1.3;
+            else if (arrive === 'w') ax += 1.3;
+            else if (arrive === 'n') bz -= 1.3;
+            else az += 1.3;
+            if (Math.hypot(bx - ax, bz - az) < 0.4) continue;
+          }
           // skip edges that coincide with an exterior wall
           if (Math.abs(ax - bx) < 1e-3 && (Math.abs(ax - ix0) < 0.3 || Math.abs(ax - ix1) < 0.3)) continue;
           if (Math.abs(az - bz) < 1e-3 && (Math.abs(az - iz0) < 0.3 || Math.abs(az - iz1) < 0.3)) continue;
@@ -200,7 +211,18 @@ export function block(k: Kit, s: BlockSpec): void {
     k.wall(s.x0, s.z1 - pt / 2, s.x1, s.z1 - pt / 2, roofY, ph, pt, wall, [], { cap: capMat });
     k.wall(s.x0 + pt / 2, s.z0 + pt, s.x0 + pt / 2, s.z1 - pt, roofY, ph, pt, wall, [], { cap: capMat });
     k.wall(s.x1 - pt / 2, s.z0 + pt, s.x1 - pt / 2, s.z1 - pt, roofY, ph, pt, wall, [], { cap: capMat });
-  } else k.span(s.x0 - 0.05, roofY - 0.05, s.z0 - 0.05, s.x1 + 0.05, roofY + 0.18, s.z1 + 0.05, capMat, { collide: false, bevel: 0.06, faces: 1 | 2 | 4 | 16 | 32 });
+  } else {
+    // flat roof edge: a rim band over the walls, not a lid (a full cap box hid the roof stairwell
+    // behind a visual-only ceiling and floated 18 cm above the walkable roof)
+    const e = t + 0.1;
+    const y0 = roofY - 0.05;
+    const y1 = roofY + 0.06;
+    const ro = { collide: false, bevel: 0.03 };
+    k.span(s.x0 - 0.05, y0, s.z0 - 0.05, s.x1 + 0.05, y1, s.z0 + e, capMat, ro);
+    k.span(s.x0 - 0.05, y0, s.z1 - e, s.x1 + 0.05, y1, s.z1 + 0.05, capMat, ro);
+    k.span(s.x0 - 0.05, y0, s.z0 + e, s.x0 + e, y1, s.z1 - e, capMat, ro);
+    k.span(s.x1 - e, y0, s.z0 + e, s.x1 + 0.05, y1, s.z1 - e, capMat, ro);
+  }
 }
 
 /** A short exterior stair + landing to reach a roof or balcony (with rails). */
@@ -496,7 +518,14 @@ function commandBunker(k: Kit, team: number, m: Markers): void {
   k.span(x0 - 1.2, hh + 0.5, -9, x1 + 0.2, cap, 3.2, 'dirt', { metal: false, bevel: 0.15, seg: 3 });
   k.span(1.4, hh + 0.5, 3.2, x1 + 0.2, cap, 9, 'dirt', { metal: false, bevel: 0.15 });
   k.span(x0 - 1.2, hh + 0.5, 7.4, 1.4, cap, 9, 'dirt', { metal: false, bevel: 0.15 });
-  k.span(x0 - 0.4, hh + 0.52, 3.2, 1.4, hh + 0.56, 7.4, 'grid', { collide: false, bevel: 0 });
+  // apron grid overlay around (not over) the hatch [stair.x1..0, 4.6..6.6]
+  for (const [a, b, c, d] of [
+    [x0 - 0.4, 3.2, 1.4, 4.6],
+    [x0 - 0.4, 6.6, 1.4, 7.4],
+    [x0 - 0.4, 4.6, stair.x1, 6.6],
+    [0.0, 4.6, 1.4, 6.6],
+  ] as const)
+    k.span(a, hh + 0.52, b, c, hh + 0.56, d, 'grid', { collide: false, bevel: 0 });
   k.railing(0.2, 4.4, 0.2, 6.6, hh + 0.5, { mat: 'yellow' });
   k.railing(stair.x1, 4.45, 0.2, 4.45, hh + 0.5, { mat: 'yellow' });
   k.light(-3, hh + 1.8, 5.5, tl, 3, 6);
@@ -512,11 +541,20 @@ function commandBunker(k: Kit, team: number, m: Markers): void {
   k.roomLights(x0 + 0.5, -6.5, x1 - 0.2, 6.5, 0.2, hh, WARM, 5);
   k.locker(4.2, -6.4, 0, 4, 0.2, tm);
   k.locker(4.2, 6.4, Math.PI, 4, 0.2, tm);
-  // spawn points: all inside the war room (the portal throat + gate T-wall keep it out of sight)
-  for (let i = 0; i < 8; i++) {
-    const p = i < 5 ? k.p(-1.5 + (i % 2) * 2.6, 0.5, -4.2 + i * 2.1) : k.p(3.5, 0.5, [-4.6, -2.4, 2.6][i - 5]);
-    m.spawns.push({ pos: p, yaw: k.f.rot - Math.PI / 2 });
-  }
+  // spawn points: in the portal throat and at the front of the war room, facing out (the throat + gate
+  // T-wall keep them out of sight); behind the holo table you had to walk around it after every death
+  const spots: [number, number][] = [
+    [7.9, -1.2],
+    [7.9, 1.2],
+    [9.2, -1.2],
+    [9.2, 1.2],
+    [3.6, -0.9],
+    [3.6, 0.9],
+    [2.6, -1.6],
+    [2.6, 1.6],
+  ];
+  // all look down the throat, slightly toward its axis (point 20 m out along local +x)
+  for (const [x, z] of spots) m.spawns.push({ pos: k.p(x, 0.5, z), yaw: k.f.rot + Math.atan2(-(20 - x), z) });
   m.perches.push(k.p(-2, cap + 0.1, 0));
 }
 
@@ -525,7 +563,7 @@ export function solarMast(k: Kit, h = 9): void {
   k.cyl(0, 0.3, 0, 0.6, 0.6, 'concrete', { seg: 10, metal: false });
   k.beam([0, 0, 0], [0, h + 0.5, 0], 0.28, 'steel', { round: true, collide: true });
   for (const y of [h * 0.55, h]) {
-    k.box(0, y, 0, 0.12, 2.6, 3.4, 'solar', { collide: false, bevel: 0.02 });
+    k.box(0, y, 0, 0.12, 2.6, 3.4, 'solar', { bevel: 0.02, metal: false });
     k.box(-0.08, y, 0, 0.06, 2.7, 3.5, 'dark', { collide: false, bevel: 0 });
   }
   k.beacon(0, h + 1.8, 0, 0xff3a2a, 1.9, h * 0.1);
@@ -644,7 +682,7 @@ export function processingPlant(k: Kit, m: Markers, o: { conveyorTo?: THREE.Vect
   hk.box(0.5, 1.4, -0.5, 4, 2.8, 3.2, 'yellow', { bevel: 0.15 });
   hk.box(0.5, 3.1, -0.5, 3.2, 0.6, 2.4, 'darkPanel', { bevel: 0.1 });
   hk.cylH(-2, 1.9, -0.5, 1.3, 0.5, 'x', 'dark', { seg: 16 });
-  hk.box(0.5, 4.2, -0.5, 2.6, 1.6, 2.2, 'dark', { collide: false, bevel: 0.08 });
+  hk.box(0.5, 4.2, -0.5, 2.6, 1.6, 2.2, 'dark', { bevel: 0.08 });
   hk.pipe([[0.5, 5.0, -0.5], [0.5, 7.6, -0.5]], 0.35, 'steel');
   // control room props (upstairs, north)
   for (const x of [-5.5, -3.2]) hk.console(x, 6.1, Math.PI, FLOOR, 'screen');
@@ -775,8 +813,8 @@ export function siloComplex(k: Kit, m: Markers, o: { seed?: number } = {}): void
   {
     const R = 2 * FLOOR;
     lk.span(2.0, R, -4.1, 5.7, R + 3.2, 4.1, 'yellow', { bevel: 0.12 });
-    lk.span(1.85, R + 3.2, -4.25, 5.85, R + 3.5, 4.25, 'darkPanel', { collide: false, bevel: 0.06 });
-    lk.span(2.8, R + 3.5, -1.5, 4.8, R + 4.3, 1.5, 'dark', { collide: false, bevel: 0.08 });
+    lk.span(1.85, R + 3.2, -4.25, 5.85, R + 3.5, 4.25, 'darkPanel', { bevel: 0.06 });
+    lk.span(2.8, R + 3.5, -1.5, 4.8, R + 4.3, 1.5, 'dark', { bevel: 0.08 });
     for (const z of [-2.6, 0, 2.6]) lk.box(1.9, R + 1.6, z, 0.08, 2.8, 0.12, 'darkPanel', { collide: false, bevel: 0 });
     lk.panel(1.92, R + 2.2, 0, 3.4, 0.8, -1, 0, 0, 'hazard');
     lk.box(3.2, R + 0.8, 4.2, 1.6, 1.4, 0.2, 'darkPanel', { collide: false, bevel: 0.04 });
@@ -993,11 +1031,55 @@ function shuttle(k: Kit, m: Markers, seed: number): void {
   const L = 16;
   const R = 2.7;
   const cy = fy + 1.25;
-  // exterior hull (visual shell) + nose + engines + wings + legs
-  const g = new THREE.CylinderGeometry(R, R, L, 28, 4, true);
-  k.b.add('hull', g, k.p(0, cy, 0), k.q(0, qAxis(1, 0, 0, Math.PI / 2)));
+  const w = 3.4;
+  // side hatch in the cabin wall (local +x, z -5.2..-3.4): the round hull is cut around it
+  const hz0 = -5.3;
+  const hz1 = -3.3;
+  const a0 = Math.asin((fy - cy) / R); // hull angle (from +x, up) at the cabin floor
+  const a1 = Math.asin((fy + 2.5 - cy) / R); // … and at the hatch top
+  // exterior hull shell: CylinderGeometry θ maps to φ = θ − π/2 in this frame (x = R cos φ, y = R sin φ)
+  const shell = (z0: number, z1: number, gap: boolean) => {
+    const g = gap ? new THREE.CylinderGeometry(R, R, z1 - z0, 24, 1, true, a1 + Math.PI / 2, Math.PI * 2 - (a1 - a0)) : new THREE.CylinderGeometry(R, R, z1 - z0, 28, 2, true);
+    k.b.add('hull', g, k.p(0, cy, (z0 + z1) / 2), k.q(0, qAxis(1, 0, 0, Math.PI / 2)));
+  };
+  shell(-L / 2, hz0, false);
+  shell(hz0, hz1, true);
+  shell(hz1, L / 2, false);
+  // hull colliders: a ring of flat planks (the visual shell used to have none — you could fly into
+  // it and stand on the cabin roof inside the hull); the hatch section leaves the doorway open
+  const planks = (z0: number, z1: number, from: number, to: number, n: number) => {
+    const da = (to - from) / n;
+    const rc = R * Math.cos(da / 2) - 0.15;
+    for (let i = 0; i < n; i++) {
+      const ph = from + (i + 0.5) * da;
+      k.b.world.addBox(k.p(Math.cos(ph) * rc, cy + Math.sin(ph) * rc, (z0 + z1) / 2), V(R * Math.sin(da / 2) + 0.04, 0.15, (z1 - z0) / 2), k.q(0, qAxis(0, 0, 1, ph - Math.PI / 2)), true);
+    }
+  };
+  planks(-L / 2, hz0, 0, Math.PI * 2, 20);
+  planks(hz0, hz1, a1, a0 + Math.PI * 2, 17);
+  planks(hz1, L / 2, 0, Math.PI * 2, 20);
+  // hatch frame
+  for (const z of [hz0, hz1]) k.box(R - 0.12, fy + 1.25, z, 0.36, 2.5, 0.16, 'trim', { collide: false, bevel: 0.04 });
+  k.box(R * Math.cos(a1) + 0.12, fy + 2.5, (hz0 + hz1) / 2, 0.4, 0.16, hz1 - hz0 + 0.16, 'trim', { collide: false, bevel: 0.04 });
+  // nose (half ellipsoid) + solid slices as its collider
   const nose = new THREE.SphereGeometry(R, 28, 12, 0, Math.PI * 2, 0, Math.PI / 2);
   k.b.add('hull', nose, k.p(0, cy, L / 2), k.q(0, qAxis(1, 0, 0, Math.PI / 2)), V(1, 1.4, 1));
+  for (const d of [0.45, 1.35, 2.25, 3.15]) k.b.world.addCylinder(k.p(0, cy, L / 2 + d), R * Math.sqrt(1 - (d / (1.4 * R)) ** 2), 0.45, k.q(0, qAxis(1, 0, 0, Math.PI / 2)), true);
+  // rear bulkhead: hull ring closed around the cabin mouth, a block fills the crawl gap over the cabin roof
+  {
+    const sh = new THREE.Shape();
+    sh.absarc(0, 0, R, 0, Math.PI * 2, false);
+    const hole = new THREE.Path();
+    hole.moveTo(-w / 2 - 0.3, fy - 0.3 - cy);
+    hole.lineTo(-w / 2 - 0.3, fy + 3.1 - cy);
+    hole.lineTo(w / 2 + 0.3, fy + 3.1 - cy);
+    hole.lineTo(w / 2 + 0.3, fy - 0.3 - cy);
+    hole.closePath();
+    sh.holes.push(hole);
+    k.b.add('hull', new THREE.ShapeGeometry(sh, 24), k.p(0, cy, -L / 2), k.q(Math.PI));
+    k.b.world.addBox(k.p(0, fy + 3.5, -L / 2 + 0.3), V(0.9, 0.38, 0.3), k.q(), true);
+    for (const sx of [-1, 1]) k.b.world.addBox(k.p(sx * 2.3, cy, -L / 2 + 0.1), V(0.3, 1.4, 0.1), k.q(), true);
+  }
   k.panel(0, cy + 1.6, L / 2 + 2.3, 2.4, 0.9, 0, 0.55, 1, 'glassBlue');
   for (const s of [-1, 1]) {
     k.cylH(s * 2.5, cy - 0.2, -L / 2 - 0.7, 0.95, 1.8, 'z', 'darkPanel', { seg: 16 });
@@ -1006,10 +1088,12 @@ function shuttle(k: Kit, m: Markers, seed: number): void {
     k.box(s * 7.6, cy - 0.55, -3.8, 0.9, 0.4, 3.0, 'orange', { bevel: 0.1, collide: false });
     for (const lz of [-5, 5]) k.beam([s * 1.8, cy - 2, lz], [s * 2.6, 0.1, lz], 0.28, 'steel', { round: true, collide: true });
   }
-  k.box(0, cy + R + 0.5, -L / 2 + 1.5, 0.4, 2.2, 3.0, 'hull', { bevel: 0.12, collide: false });
-  k.box(0, cy + 0.2, 0, 2 * R + 0.12, 0.3, L, 'orange', { collide: false, bevel: 0.05 });
+  k.box(0, cy + R + 0.5, -L / 2 + 1.5, 0.4, 2.2, 3.0, 'hull', { bevel: 0.12 });
+  // orange livery stripes on the flanks (was a full-width slab that cut through the cabin at chest height)
+  k.box(-R - 0.02, cy + 0.2, 0, 0.1, 0.3, L, 'orange', { collide: false, bevel: 0.03 });
+  k.box(R + 0.02, cy + 0.2, (hz1 + L / 2) / 2, 0.1, 0.3, L / 2 - hz1, 'orange', { collide: false, bevel: 0.03 });
+  k.box(R + 0.02, cy + 0.2, (-L / 2 + hz0) / 2, 0.1, 0.3, hz0 + L / 2, 'orange', { collide: false, bevel: 0.03 });
   // cabin colliders (box interior inside the round hull)
-  const w = 3.4;
   k.span(-w / 2, fy - 0.3, -L / 2 + 0.2, w / 2, fy, L / 2 - 0.4, 'tile', { bevel: 0.02 });
   k.span(-w / 2, fy + 2.8, -L / 2 + 0.2, w / 2, fy + 3.1, L / 2 - 0.4, 'cream', { bevel: 0.02 });
   // walls with the side hatch (local -x, z≈4.3) and the open rear
@@ -1071,7 +1155,20 @@ export function lab(k: Kit, m: Markers, o: { seed?: number; compact?: boolean } 
     sh.b.panel(sh.p(Math.cos(a) * rr, y, Math.sin(a) * rr), 0.9, 0.9, n, 'glassWarm');
     sh.b.torus(sh.p(Math.cos(a) * (rr + 0.05), y, Math.sin(a) * (rr + 0.05)), 0.55, 0.1, sh.q(-a + Math.PI / 2).multiply(qAxis(1, 0, 0, -0.22)), 'brass');
   }
-  sh.b.torus(sh.p(0, 0.9, 0), R + 0.12, 0.22, qAxis(1, 0, 0, Math.PI / 2), 'orange');
+  // band around the shell, broken at the ground-level doorways (a full ring crossed them at knee height)
+  {
+    const gaps = [
+      [Math.PI / 2, 4.2],
+      [Math.PI, 3.8],
+      [Math.PI * 1.5, 3.8],
+    ].map(([a, w]) => [a, (w / 2 + 0.35) / R]);
+    for (let i = 0; i < gaps.length; i++) {
+      const a0 = gaps[i][0] + gaps[i][1];
+      const nx = gaps[(i + 1) % gaps.length];
+      const a1 = nx[0] - nx[1] + (i === gaps.length - 1 ? Math.PI * 2 : 0);
+      sh.b.torus(sh.p(0, 0.9, 0), R + 0.12, 0.22, sh.q(0, qAxis(1, 0, 0, Math.PI / 2).multiply(qAxis(0, 0, 1, a0))), 'orange', a1 - a0);
+    }
+  }
   sh.cyl(0, R * 1.05 - 0.3, 0, 2.2, 0.8, 'brass', { seg: 20, collide: false });
   sh.cyl(0, R * 1.05 + 0.2, 0, 1.6, 0.4, 'glassBlue', { seg: 20, collide: false, bevel: 0 });
   sh.beam([0, R * 1.05 + 0.3, 0], [0, R * 1.05 + 3.5, 0], 0.1, 'steel', { round: true });
@@ -1142,8 +1239,8 @@ export function lab(k: Kit, m: Markers, o: { seed?: number; compact?: boolean } 
   tk.cyl(0, FLOOR / 2, 0, 2.6, FLOOR, 'cream', { seg: 24 });
   tk.cyl(0, FLOOR + 0.35, 0, 2.7, 0.7, 'orange', { seg: 24 });
   tk.b.dome(tk.p(0, FLOOR + 0.7, 0), 2.6, 'hullGray', { seg: 24 });
-  tk.box(0, FLOOR + 2.2, 0.8, 0.9, 3.2, 2.8, 'dark', { tilt: qAxis(1, 0, 0, 0.5), collide: false, bevel: 0.05 });
-  tk.beam([0, FLOOR + 1.4, 0], [0, FLOOR + 4.0, 1.9], 0.75, 'paintWhite', { round: true });
+  tk.box(0, FLOOR + 2.2, 0.8, 0.9, 3.2, 2.8, 'dark', { tilt: qAxis(1, 0, 0, 0.5), bevel: 0.05 });
+  tk.beam([0, FLOOR + 1.4, 0], [0, FLOOR + 4.0, 1.9], 0.75, 'paintWhite', { round: true, collide: true });
   for (let i = 0; i < 8; i++) {
     const a = (i * Math.PI) / 4;
     const kk = tk.at(Math.cos(a) * 3.35, Math.sin(a) * 3.35, -a, 0);

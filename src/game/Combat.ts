@@ -666,7 +666,7 @@ export class Combat {
         mesh = this.grenadeMesh(0xffc21a);
         break;
       case 'frag':
-        p.gravity = 1;
+        p.gravity = 2.4; // heavier than lunar ballistics so it drops where you aim
         p.bounce = 0.4;
         p.fuse = 1.8;
         p.radius = 0.1;

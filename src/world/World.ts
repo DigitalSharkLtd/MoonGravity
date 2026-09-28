@@ -7,6 +7,7 @@ import { PhysicsWorld } from '../core/Physics';
 import { StructureBuilder, Animated } from './Builder';
 import { buildLayout, LayoutInfo } from './Layouts';
 import { gradeFoundations } from './Foundations';
+import { tidySpawns } from './Spawns';
 import { scatterRocks } from './Props';
 import type { Quality } from '../game/Types';
 import { Lighting as _L, ShadowMode } from './Lighting';
@@ -62,6 +63,8 @@ export class World {
     const graded = noGrade ? { footprints: 0, cells: 0, box: null } : gradeFoundations(this.physics, this.terrainData.hf);
     if (graded.box) this.terrain.refresh(graded.box);
     for (const s of this.layout.spawns) s.pos.y = Math.max(s.pos.y, this.terrainData.hf.heightAt(s.pos.x, s.pos.z) + 0.3);
+    const tidied = tidySpawns(this.physics, this.layout.spawns); // out of cramped corners, facing the way out
+    if (tidied) console.info(`[world] moved ${tidied} cramped spawns`);
     console.info(`[world] graded ${graded.footprints} foundations (${graded.cells} cells)`);
     lap('grading');
     this.terrain.bakeLights(b.lights, b.lamps);

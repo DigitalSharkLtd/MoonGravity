@@ -170,6 +170,21 @@ export function scaleCylUV(g: THREE.BufferGeometry, r: number, h: number, radial
 }
 
 /**
+ * Geometry audits (scripts/audit/*.mjs): with `globalThis.__mgGeoDebug = []` set before a world is
+ * built, every visual piece is recorded with its bounds and call site, so "ghost" surfaces (visible,
+ * no collider) can be traced back to the generator line that made them.
+ */
+function debugGeo(mat: Mat, geo: THREE.BufferGeometry, pos: THREE.Vector3, quat: THREE.Quaternion, scale?: THREE.Vector3): void {
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox!;
+  const sc = scale ?? new THREE.Vector3(1, 1, 1);
+  const c = bb.getCenter(new THREE.Vector3()).multiply(sc).applyQuaternion(quat).add(pos);
+  const h = bb.getSize(new THREE.Vector3()).multiply(sc).multiplyScalar(0.5);
+  const st = (new Error().stack ?? '').split('\n').slice(3, 8).map((l) => l.trim().replace(/\(http[^)]*\)/, '')).join(' | ');
+  (globalThis as unknown as { __mgGeoDebug: unknown[] }).__mgGeoDebug.push({ c: [c.x, c.y, c.z], h: [h.x, h.y, h.z], q: [quat.x, quat.y, quat.z, quat.w], mat, st });
+}
+
+/**
  * Accumulates static structure geometry (merged per material → few draw calls) and physics colliders.
  */
 export class StructureBuilder {
@@ -303,6 +318,7 @@ export class StructureBuilder {
 
   add(mat: Mat, geo: THREE.BufferGeometry, pos: THREE.Vector3, quat: THREE.Quaternion, scale?: THREE.Vector3): void {
     _m.compose(pos, quat, scale ?? _s.set(1, 1, 1));
+    if ((globalThis as { __mgGeoDebug?: unknown[] }).__mgGeoDebug) debugGeo(mat, geo, pos, quat, scale);
     this.shadowProxy(mat, geo, _m, scale);
     const g = geo;
     g.applyMatrix4(_m);

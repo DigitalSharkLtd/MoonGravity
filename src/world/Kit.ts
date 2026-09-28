@@ -440,6 +440,14 @@ export class Kit {
       this.b.add(mat, g, k.p(0, 0, 0), k.q());
       // nosing strips
       for (let i = 0; i < n; i += 1) k.box((i + 0.08) * run, (i + 1) * rise - 0.02, 0, 0.1, 0.05, width - 0.1, i % 2 ? 'yellow' : 'trim', { collide: false, bevel: 0.01 });
+      // the solid body under the ramp collides too (you could walk into a solid-looking flight)
+      const m = Math.max(1, Math.ceil(L / 0.9));
+      for (let j = 1; j < m; j++) {
+        const xa = (j * L) / m;
+        const top = (xa * H) / L - 0.1;
+        if (top < 0.3) continue;
+        this.b.world.addBox(k.p(xa + L / m / 2, top / 2, 0), V(L / m / 2, top / 2, width / 2), k.q(), false);
+      }
     } else {
       for (let i = 0; i < n; i++) k.box((i + 0.5) * run, (i + 1) * rise - 0.05, 0, run + 0.04, 0.1, width - 0.2, o.tread ?? 'grid', { collide: false, bevel: 0.02 });
       const sa = Math.atan2(H, L);
@@ -479,6 +487,12 @@ export class Kit {
       k.beam([L, H, z], [L, H + 1.0, z], 0.06, 'steel', { round: true });
     }
     if (o.test !== false) k.test('stairs', [-1.0, 0.3, 0], [L + 1.0, H + 0.3, 0]);
+    // stair audit hook (scripts/audit/stairs.mjs): bottom, top and the exit point past the top
+    const SD = (globalThis as { __mgStairDebug?: unknown[] }).__mgStairDebug;
+    if (SD) {
+      const [a, c, e] = [k.p(0, 0, 0), k.p(L, H, 0), k.p(L + 1.2, H, 0)];
+      SD.push({ a: [a.x, a.y, a.z], c: [c.x, c.y, c.z], e: [e.x, e.y, e.z], w: width, st: (new Error().stack ?? '').split('\n').slice(2, 5).map((l) => l.trim()).join(' | ') });
+    }
   }
 
   /** Straight ramp (smooth slab), e.g. vehicle ramps and glacis walks. */

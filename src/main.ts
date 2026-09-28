@@ -578,6 +578,7 @@ void (async () => {
     menu,
     hud,
     HERO_ORDER,
+    THREE, // (debug: automated geometry / collision audits)
     start: (mode: ModeId, hero: HeroId) => startMatch(mode, hero, 'offline', null),
     online: (mode: ModeId, hero: HeroId, join?: string) => playOnline(mode, hero, join),
     audio,

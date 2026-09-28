@@ -275,7 +275,7 @@ export function containers(b: StructureBuilder, f: Frame, layout: [number, numbe
   const rng = new Rng(seed);
   for (const [x, z, level, rot] of layout) {
     const mat = rng.pick(CONTAINERS);
-    l.box(x, 1.25 + level * 2.5, z, 2.4, 2.5, 5.8, mat, { rot, metal: false });
+    l.box(x, 1.25 + level * 2.5, z, 2.4, 2.5, 5.8, mat, { rot }); // big shipping containers stay mag-walkable
   }
 }
 

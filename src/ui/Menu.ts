@@ -33,6 +33,8 @@ export interface MenuCallbacks {
   onHeroPicked(hero: HeroId, build?: string): void;
   onResume(): void;
   onLeaveMatch(): void;
+  /** stop the game: leave any match, drop full screen, close the window when the browser allows it */
+  onQuitGame?(): void;
   onUiSound(kind: 'click' | 'hover' | 'back' | 'confirm' | 'error'): void;
   listRooms(mode?: ModeId): Promise<RoomInfo[]>;
   requestHeroPreview?(canvas: HTMLCanvasElement, hero: HeroId | null): void;
@@ -307,6 +309,10 @@ export class MenuSystem {
                 this.inMatch = false;
                 this.cb.onLeaveMatch();
               },
+              quit: () => {
+                this.inMatch = false;
+                this.cb.onQuitGame?.();
+              },
             })
           : null;
         break;
@@ -568,6 +574,13 @@ export class MenuSystem {
       });
       return b;
     })();
+    const quitItem = this.cb.onQuitGame
+      ? (() => {
+          const b = h('button', { class: 'mg-nav-item is-small', type: 'button', 'data-snd': 'back' }, span('mg-nav-bar'), ico(UI.leave, 'mg-nav-ico'), span('mg-nav-txt', span('mg-nav-label', t('nav.quit'))));
+          b.addEventListener('click', () => this.cb.onQuitGame?.());
+          return b;
+        })()
+      : null;
     const navItem = (id: ScreenId, label: string, sub: string, icon: string, cls = '') => {
       const b = h(
         'button',
@@ -591,6 +604,7 @@ export class MenuSystem {
       navItem('credits', t('nav.credits'), '', UI.star, 'is-small'),
       fsItem,
       this.installItem(),
+      quitItem,
     );
 
     const news = div(

@@ -6172,3 +6172,31 @@ html {
   font: italic 700 0.85rem/1 var(--f-head);
   color: var(--gold);
 }
+
+/* "Exit game" farewell screen (a page can't close a normal browser tab) */
+.mg-quit {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+  text-align: center;
+  background: radial-gradient(ellipse at 50% 40%, #16202e 0%, #07090d 70%);
+  color: #e8eef6;
+}
+.mg-quit h1 {
+  margin: 0;
+  font-family: 'Russo One', 'Oswald', sans-serif;
+  font-size: clamp(28px, 5vw, 56px);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.mg-quit p {
+  margin: 0 0 12px;
+  opacity: 0.75;
+  font-size: 17px;
+}

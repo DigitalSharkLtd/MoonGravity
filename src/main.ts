@@ -9,7 +9,8 @@ import { Game } from './game/Game';
 import { offlineBridge } from './game/NetBridge';
 import { HeroModel } from './entities/HeroModel';
 import { warmMatchShaders } from './render/Warmup';
-import { enterFullscreen, isFullscreen, toggleFullscreen } from './ui/fullscreen';
+import { t } from './ui/i18n';
+import { enterFullscreen, exitFullscreen, isFullscreen, toggleFullscreen } from './ui/fullscreen';
 import { MODES, ModeId, HeroId, Settings, Profile, MatchResult, HERO_ORDER, MapId } from './game/Types';
 import { MenuSystem, MenuCallbacks } from './ui/Menu';
 import { Hud } from './ui/Hud';
@@ -46,7 +47,7 @@ const pipe = new Pipeline(canvas, new THREE.Scene(), camera, new THREE.Scene(), 
 const hud = new Hud(hudRoot, settings);
 hud.show(false);
 
-type State = 'boot' | 'menu' | 'loading' | 'match';
+type State = 'boot' | 'menu' | 'loading' | 'match' | 'quit';
 let state: State = 'boot';
 let world: World | null = null;
 let worldMap: MapId | null = null;
@@ -315,6 +316,48 @@ async function leaveMatch(): Promise<void> {
   menu.showMain();
 }
 
+/**
+ * "Exit game": stop the match and networking, drop full screen and try to close the window (allowed
+ * for an installed app or a script-opened tab). A normal tab can't be closed by the page, so a
+ * farewell screen stops the game (rendering paused) and offers the way back.
+ */
+let quitEl: HTMLElement | null = null;
+function quitGame(): void {
+  if (game) {
+    game.dispose();
+    game = null;
+  }
+  net?.close();
+  net = null;
+  hud.show(false);
+  input.unlock();
+  menu.hide();
+  exitFullscreen();
+  audio.music('none');
+  state = 'quit';
+  window.close();
+  if (quitEl) return;
+  const el = document.createElement('div');
+  el.className = 'mg-quit';
+  const title = document.createElement('h1');
+  title.textContent = t('quit.title');
+  const hint = document.createElement('p');
+  hint.textContent = t('quit.hint');
+  const back = document.createElement('button');
+  back.type = 'button';
+  back.className = 'mg-btn mg-btn--primary mg-btn--big';
+  back.textContent = t('quit.back');
+  back.addEventListener('click', () => {
+    el.remove();
+    quitEl = null;
+    if (settings.fullscreen) enterFullscreen();
+    void leaveMatch();
+  });
+  el.append(title, hint, back);
+  document.body.appendChild(el);
+  quitEl = el;
+}
+
 function pause(): void {
   if (!game || state !== 'match' || ended) return;
   game.paused = true;
@@ -346,7 +389,7 @@ const firstGesture = (e: Event): void => {
   if (e instanceof KeyboardEvent && (e.key === 'Escape' || e.key === 'F10' || e.key === 'F11')) return;
   removeEventListener('pointerdown', firstGesture, true);
   removeEventListener('keydown', firstGesture, true);
-  if (settings.fullscreen && !isFullscreen()) enterFullscreen();
+  if (settings.fullscreen && !isFullscreen() && state !== 'quit') enterFullscreen();
 };
 // the browser's own banner talks about holding Esc (Esc is the pause key here): say how to leave with F10
 document.addEventListener('fullscreenchange', () => {
@@ -356,7 +399,7 @@ addEventListener('pointerdown', firstGesture, true);
 addEventListener('keydown', firstGesture, true);
 addEventListener('keydown', (e) => {
   // F10: toggle full screen anywhere (menu or match)
-  if (e.code === 'F10') {
+  if (e.code === 'F10' && state !== 'quit') {
     e.preventDefault();
     toggleFullscreen();
     return;
@@ -484,6 +527,7 @@ const cb: MenuCallbacks = {
   },
   onResume: () => resume(),
   onLeaveMatch: () => void leaveMatch(),
+  onQuitGame: () => quitGame(),
   onUiSound: (k) => audio.play(k === 'hover' ? 'ui_hover' : 'ui_click', { volume: settings.uiVolume * (k === 'hover' ? 0.5 : 1) }),
   listRooms: (mode) => listRooms(mode),
   canInstall: () => canInstall(),
@@ -509,6 +553,7 @@ function frame(): void {
   const now = performance.now();
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  if (state === 'quit') return; // exited: nothing simulated or drawn behind the farewell screen
   if (state === 'match' && game) {
     const me = game.local;
     // while dead: press the interact key (or Enter) to switch hero, as the death screen says

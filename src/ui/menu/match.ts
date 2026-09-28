@@ -378,7 +378,7 @@ export function buildHeroSelect(
 // ---------------------------------------------------------------------------
 // pause
 
-export function buildPause(ctx: MenuCtx, info: PauseInfo, act: { resume(): void; leave(): void }): ScreenInst {
+export function buildPause(ctx: MenuCtx, info: PauseInfo, act: { resume(): void; leave(): void; quit(): void }): ScreenInst {
   const el = div('mg-page mg-pause');
   const m = info.mode;
   const resume = btn(t('pause.resume'), () => act.resume(), { kind: 'primary', big: true, icon: UI.play, kbd: 'Esc' });
@@ -391,15 +391,19 @@ export function buildPause(ctx: MenuCtx, info: PauseInfo, act: { resume(): void;
       }, { kind: 'ghost', icon: UI.monitor, big: true, kbd: 'F10' })
     : null;
   const leaveWrap = div('mg-pause-leave');
-  const renderLeave = (confirming: boolean) => {
+  const renderLeave = (confirming: false | 'leave' | 'quit') => {
     clear(leaveWrap);
     if (!confirming) {
-      leaveWrap.appendChild(btn(t('pause.leave'), () => renderLeave(true), { kind: 'danger', icon: UI.leave, big: true }));
-    } else {
       leaveWrap.append(
-        div('mg-pause-confirm-q', ico(UI.warning), span('', t('pause.leaveConfirm'))),
+        btn(t('pause.leave'), () => renderLeave('leave'), { kind: 'danger', icon: UI.leave, big: true }),
+        btn(t('pause.quit'), () => renderLeave('quit'), { kind: 'ghost', icon: UI.leave, big: true }),
+      );
+    } else {
+      const quit = confirming === 'quit';
+      leaveWrap.append(
+        div('mg-pause-confirm-q', ico(UI.warning), span('', t(quit ? 'pause.quitConfirm' : 'pause.leaveConfirm'))),
         div('mg-pause-warn', info.isHost ? t('pause.hostWarn') : ''),
-        div('mg-pause-confirm-btns', btn(t('common.yes'), () => act.leave(), { kind: 'danger', icon: UI.leave }), btn(t('common.no'), () => renderLeave(false), { kind: 'ghost', snd: 'back' })),
+        div('mg-pause-confirm-btns', btn(t('common.yes'), () => (quit ? act.quit() : act.leave()), { kind: 'danger', icon: UI.leave }), btn(t('common.no'), () => renderLeave(false), { kind: 'ghost', snd: 'back' })),
       );
     }
   };

@@ -172,6 +172,9 @@ export class Fighter {
   /** smoothed values for rendering */
   renderPos = new THREE.Vector3();
   renderQuat = new THREE.Quaternion();
+  /** drawn-height offset easing out a step-up (curbs, slab lips: up to 0.55 m in one physics step) */
+  stepOff = 0;
+  lastDrawY = 0;
   renderPitch = 0;
   /** match times of recent kills (multikill ribbon) */
   recentKills: number[] = [];
@@ -325,6 +328,8 @@ export class Fighter {
     this.body.magOn = false;
     this.renderPos.copy(pos);
     this.renderQuat.copy(this.body.quat);
+    this.stepOff = 0;
+    this.lastDrawY = pos.y;
     this.model?.resetPose();
     this.snaps.length = 0;
   }

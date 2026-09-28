@@ -758,9 +758,9 @@ export class Kit {
   /** decorative gun turret emplacement (team coloured) */
   turret(x: number, z: number, rot: number, y = 0, team: number | null = null): void {
     const k = this.at(x, z, rot, y);
-    k.cyl(0, 0.35, 0, 1.3, 0.7, 'darkPanel', { seg: 12 });
+    k.cyl(0, 0.35, 0, 1.3, 0.7, 'darkPanel', { seg: 12, metal: false });
     k.cyl(0, 0.9, 0, 0.8, 0.5, 'dark', { seg: 12, collide: false });
-    k.box(0, 1.45, 0, 1.4, 0.8, 1.2, teamMat(team), { bevel: 0.12 });
+    k.box(0, 1.45, 0, 1.4, 0.8, 1.2, teamMat(team), { bevel: 0.12, metal: false });
     k.box(0.1, 1.45, 0, 1.2, 0.5, 1.3, 'darkPanel', { collide: false, bevel: 0.06 });
     for (const s of [-1, 1]) {
       k.beam([0.6, 1.5, s * 0.25], [2.6, 1.55, s * 0.25], 0.14, 'dark', { round: true });
@@ -772,7 +772,7 @@ export class Kit {
   lampPost(x: number, z: number, rot = 0, y = 0, h = 4.2, color: THREE.ColorRepresentation = WARM): void {
     const k = this.at(x, z, rot, y);
     k.cyl(0, 0.2, 0, 0.28, 0.4, 'trim', { seg: 10, collide: false });
-    k.beam([0, 0, 0], [0, h, 0], 0.14, 'trim', { round: true, collide: true });
+    k.beam([0, 0, 0], [0, h, 0], 0.14, 'trim', { round: true, collide: true, metal: false });
     k.beam([0, h, 0], [0.7, h + 0.1, 0], 0.1, 'trim', { round: true });
     k.box(0.8, h, 0, 0.6, 0.18, 0.36, 'dark', { collide: false, bevel: 0.04 });
     k.box(0.8, h - 0.1, 0, 0.5, 0.03, 0.28, 'neonWarm', { collide: false, bevel: 0 });
@@ -807,7 +807,7 @@ export class Kit {
     k.cyl(-0.7, 3.55, 0.4, 0.28, 0.08, 'paintWhite', { collide: false, seg: 12, tilt: qAxis(1, 0, 0, 0.5) });
     for (const sx of [-0.7, 0.7]) k.box(sx, 1.35, 2.34, 0.34, 0.12, 0.04, 'lamp', { collide: false, bevel: 0 });
     k.light(0, 1.2, 3.6, WARM, 3.5, 7, { dir: [0, -0.25, 1], cone: 0.25 });
-    this.b.world.addBox(k.p(0, 1.3, 0.1), V(1.2, 1.15, 2.4), k.q(), true);
+    this.b.world.addBox(k.p(0, 1.3, 0.1), V(1.2, 1.15, 2.4), k.q(), false);
   }
 
   /** lattice comms mast (tripod) with dish and blinking beacon: skyline landmark, thin collider */
@@ -847,7 +847,7 @@ export class Kit {
     }
     k.panel(r + 0.01, r + 0.45, 0, 1.6, 0.7, 1, 0, 0, 'hazard');
     k.pipe([[0, 2 * r + 0.35, len / 2 - 0.6], [0, 2 * r + 0.7, len / 2 - 0.6], [0.8, 2 * r + 0.7, len / 2 - 0.6]], 0.08, 'steel');
-    this.b.world.addBox(k.p(0, r + 0.3, 0), V(r, r + 0.25, len / 2 + r * 0.7), k.q(), true);
+    this.b.world.addBox(k.p(0, r + 0.3, 0), V(r, r + 0.25, len / 2 + r * 0.7), k.q(), false);
   }
 
   /** cable reel on its rim (crouch cover ~1.3 m) */
@@ -1090,7 +1090,8 @@ export class Kit {
 
   /**
    * Sintered-regolith catenary shell (ESA / Foster "printed shell over an inflatable core"):
-   * a thick cellular dome with arched openings at the given azimuths; non-metal colliders.
+   * a thick cellular dome with arched openings at the given azimuths; metal colliders (buildings are
+   * mag-walkable: walls, roofs, floors, ceilings — small objects are not).
    */
   regolithShell(x: number, z: number, r: number, hScale: number, openings: { az: number; w: number; h: number; y0?: number }[], o: { lon?: number; inner?: Mat; y?: number } = {}): void {
     const k = this.at(x, z, 0, o.y ?? 0);
@@ -1118,7 +1119,7 @@ export class Kit {
       const y0 = op.y0 ?? 0;
       const rr = Math.sqrt(Math.max(1, r * r - ((y0 + op.h * 0.5) / hScale) ** 2));
       const kk = this.at(x + Math.cos(op.az) * (rr - 0.55), z + Math.sin(op.az) * (rr - 0.55), -op.az + Math.PI / 2, (o.y ?? 0) + y0);
-      for (const s of [-1, 1]) kk.box(s * (op.w / 2 + 0.25), op.h * 0.45, 0, 0.7, op.h * 0.9, 1.8, 'regolith', { bevel: 0.15, metal: false });
+      for (const s of [-1, 1]) kk.box(s * (op.w / 2 + 0.25), op.h * 0.45, 0, 0.7, op.h * 0.9, 1.8, 'regolith', { bevel: 0.15 });
       kk.box(0, op.h + 0.1, 0, op.w + 1.2, 0.9, 1.8, 'regolith', { bevel: 0.2, metal: false, collide: false });
       kk.box(0, op.h - 0.25, 0, op.w + 0.2, 0.18, 1.9, 'brass', { collide: false, bevel: 0.05 });
       if (y0 > 0) kk.box(0, -0.2, 0, op.w + 1.2, 0.4, 1.9, 'regolith', { bevel: 0.1, metal: false, collide: false });
@@ -1157,15 +1158,15 @@ export class Kit {
         const mr = (p0.x + p1.x) / 2;
         const my = (p0.y + p1.y) / 2;
         const c = er.clone().multiplyScalar(mr).add(V(0, my, 0)).addScaledVector(n, -0.45);
-        this.b.world.addBox(k.p(c.x, c.y, c.z), V(wid / 2, hgt / 2, 0.5), k.q().multiply(q), false);
+        this.b.world.addBox(k.p(c.x, c.y, c.z), V(wid / 2, hgt / 2, 0.5), k.q().multiply(q), true);
       }
     }
     const la = (Math.PI / 2) * 0.9;
     const cr = Math.cos(la) * r;
-    this.b.world.addBox(k.p(0, Math.sin(la) * r * hScale, 0), V(cr, 0.4, cr), k.q(), false);
+    this.b.world.addBox(k.p(0, Math.sin(la) * r * hScale, 0), V(cr, 0.4, cr), k.q(), true);
   }
 
-  /** Geodesic radome on a drum base (fibreglass: non-metal) */
+  /** Geodesic radome on a drum base (mag-walkable, like every building) */
   radome(x: number, z: number, y0: number, r: number, team: number | null = null): void {
     const k = this.at(x, z, 0, y0);
     k.cyl(0, 0.8, 0, r * 0.75, 1.6, 'hullGray', { seg: 16 });
@@ -1173,7 +1174,7 @@ export class Kit {
     const ng = new THREE.IcosahedronGeometry(r, 2);
     ng.computeVertexNormals();
     this.b.add('paintWhite', ng, k.p(0, 1.6 + r * 0.55, 0), k.q());
-    this.b.world.addSphere(k.p(0, 1.6 + r * 0.55, 0), r, false);
+    this.b.world.addSphere(k.p(0, 1.6 + r * 0.55, 0), r, true);
     k.beacon(0, 1.6 + r * 1.58, 0, 0xff3a2a, 1.7, x * 0.01);
   }
 
@@ -1227,7 +1228,7 @@ export class Kit {
     this.b.add('fabric', cap, k.p(0, h + 0.8, 0), k.q(), V(1, 0.35, 1));
     k.cyl(0, 0.4, 0, r * 0.95, 0.8, 'darkPanel', { seg: 20 });
     k.cyl(0, h + 0.8 + r * 0.35, 0, 0.8, 0.5, teamMat(team), { seg: 12, collide: false });
-    this.b.world.addCylinder(k.p(0, h / 2 + 0.8, 0), r * 1.06, h / 2 + r * 0.2, k.q(), false);
+    this.b.world.addCylinder(k.p(0, h / 2 + 0.8, 0), r * 1.06, h / 2 + r * 0.2, k.q(), true);
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2;
       k.panel(Math.cos(a) * (r * 1.09), 0.8 + h * 0.62, Math.sin(a) * (r * 1.09), 0.7, 0.4, Math.cos(a), 0, Math.sin(a), 'glassWarm');
@@ -1260,8 +1261,8 @@ export class Kit {
       const ny = Math.cos(ang);
       // metal lining (collider, walkable)
       this.box(mx + nx * (inner / 2), my + ny * (inner / 2), 0, chord + 0.12, inner, len, 'darkPanel', { tilt: qAxis(0, 0, 1, ang), bevel: 0.03, seg: 2 });
-      // regolith overburden (non-metal)
-      this.box(mx + nx * (inner + outer / 2), my + ny * (inner + outer / 2), 0, chord + 0.5, outer, len + 0.6, 'regolith', { tilt: qAxis(0, 0, 1, ang), bevel: 0.12, metal: false, seg: 3 });
+      // regolith overburden
+      this.box(mx + nx * (inner + outer / 2), my + ny * (inner + outer / 2), 0, chord + 0.5, outer, len + 0.6, 'regolith', { tilt: qAxis(0, 0, 1, ang), bevel: 0.12, seg: 3 });
     }
     // front arch frame (team), with hazard and floodlights
     for (let i = 0; i < segs; i++) {
@@ -1298,11 +1299,11 @@ export class Kit {
         if (hh < 0.3) continue;
         const dz0 = o.door === false ? 99 : -DOOR_W / 2;
         const dz1 = o.door === false ? 99 : DOOR_W / 2;
-        if (x1 <= dz0 || x >= dz1) this.span(x, 0, wz - 0.3, x1, hh, wz + 0.3, 'regolith', { metal: false, bevel: 0.04 });
+        if (x1 <= dz0 || x >= dz1) this.span(x, 0, wz - 0.3, x1, hh, wz + 0.3, 'regolith', { bevel: 0.04 });
         else {
-          if (x < dz0) this.span(x, 0, wz - 0.3, dz0, hh, wz + 0.3, 'regolith', { metal: false, bevel: 0.04 });
-          if (x1 > dz1) this.span(dz1, 0, wz - 0.3, x1, hh, wz + 0.3, 'regolith', { metal: false, bevel: 0.04 });
-          this.span(Math.max(x, dz0), DOOR_H, wz - 0.3, Math.min(x1, dz1), hh, wz + 0.3, 'regolith', { metal: false, bevel: 0.04 });
+          if (x < dz0) this.span(x, 0, wz - 0.3, dz0, hh, wz + 0.3, 'regolith', { bevel: 0.04 });
+          if (x1 > dz1) this.span(dz1, 0, wz - 0.3, x1, hh, wz + 0.3, 'regolith', { bevel: 0.04 });
+          this.span(Math.max(x, dz0), DOOR_H, wz - 0.3, Math.min(x1, dz1), hh, wz + 0.3, 'regolith', { bevel: 0.04 });
         }
       }
       const dk = this.at(0, wz, 0, 0);

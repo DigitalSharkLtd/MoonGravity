@@ -234,6 +234,15 @@ export class HeroModel {
   private wasGrounded = true;
   private airT = 0;
   private landK = 0;
+  private landT = 0;
+  // eased gait weights (poses blend instead of snapping between cycles)
+  private moveK = 0;
+  private runK = 0;
+  private runOn = false;
+  private airK = 0;
+  private dirK = 1;
+  private pitchS = 0;
+  private crouchK = 0;
   private reloadK = 0;
   private castK = 0;
   private gunQ = new THREE.Quaternion();
@@ -546,19 +555,28 @@ export class HeroModel {
     this.airT = s.grounded ? 0 : this.airT + dt;
     if (!s.grounded && this.airT < 0.12 && s.localVel.y < 1.5) s = { ...s, grounded: true };
     const moving = s.speed > 0.4 && s.grounded;
-    const run = s.speed > 4.2;
+    // run threshold with hysteresis: bots cruising around 4.2 m/s flipped between the walk and the
+    // lope cycle every few frames, and every flip snapped the legs and torso (the "shaking")
+    if (s.speed > 4.5) this.runOn = true;
+    else if (s.speed < 3.9) this.runOn = false;
+    const blend = (k: number, target: number, rate: number) => k + (target - k) * Math.min(1, dt * rate);
+    this.moveK = blend(this.moveK, moving ? 1 : 0, 9);
+    this.runK = blend(this.runK, this.runOn ? 1 : 0, 6);
+    this.airK = blend(this.airK, s.grounded ? 0 : 1, s.grounded ? 14 : 9);
     // stride locked to ground distance so feet don't skate: 1.45 m per walk cycle,
     // 2.6 m per lunar lope (long, low-gravity bounds)
-    if (moving) this.phase += ((s.speed * dt) / (run ? 2.6 : 1.45)) * 2;
+    if (moving) this.phase += ((s.speed * dt) / THREE.MathUtils.lerp(1.45, 2.6, this.runK)) * 2;
     // landing compression: remember how hard we came down
     const vy = s.localVel.y;
     if (!s.grounded) this.airVy = Math.min(this.airVy, vy);
     else if (!this.wasGrounded) {
-      this.landK = Math.max(this.landK, THREE.MathUtils.clamp(-this.airVy / 5, 0, 1));
+      this.landT = Math.max(this.landT, THREE.MathUtils.clamp(-this.airVy / 5, 0, 1));
       this.airVy = 0;
     }
     this.wasGrounded = s.grounded;
-    this.landK = Math.max(0, this.landK - dt * 2.6);
+    // the compression eases in over a few frames (it used to hit in one, jolting the head on every landing)
+    this.landT = Math.max(0, this.landT - dt * 2.6);
+    this.landK += (this.landT - this.landK) * Math.min(1, dt * 22);
     const ph = this.phase * Math.PI;
     this.flinch = Math.max(0, this.flinch - dt * 5);
     this.fireKick = Math.max(0, this.fireKick - dt * 12);
@@ -611,70 +629,62 @@ export class HeroModel {
     }
     root.rotation.x = 0;
 
-    let bob = 0;
     const legL = B('legL');
     const legR = B('legR');
     const shinL = B('shinL');
     const shinR = B('shinR');
     const side = THREE.MathUtils.clamp(s.localVel.x / 5, -1, 1);
     const back = THREE.MathUtils.clamp(s.localVel.z / 5, -1, 1);
-    const dirSign = back > 0.3 ? -1 : 1;
-    let lean = 0;
-    if (moving) {
-      if (run) {
-        // lunar lope (Apollo "skip" gait): short push-off contact, long parabolic flight;
-        // legs sweep back under the body on contact, tuck and reach forward in flight
-        const c = (this.phase * 0.5) % 1;
-        const contact = 0.3;
-        let thigh: number;
-        let knee: number;
-        if (c < contact) {
-          const k = c / contact;
-          thigh = THREE.MathUtils.lerp(-0.42, 0.38, k);
-          knee = 0.3 + Math.sin(k * Math.PI) * 0.35;
-          bob = -Math.sin(k * Math.PI) * 0.05;
-        } else {
-          const k = (c - contact) / (1 - contact);
-          thigh = THREE.MathUtils.lerp(0.38, -0.42, k * k * (3 - 2 * k));
-          knee = 0.45 + Math.sin(k * Math.PI) * 0.75;
-          bob = Math.sin(k * Math.PI) * 0.2;
-        }
-        // skipping: trailing leg lags the lead leg
-        legL.rotation.set(thigh * dirSign - 0.06, 0, -side * 0.12);
-        legR.rotation.set((thigh + 0.22) * dirSign, 0, -side * 0.12);
-        shinL.rotation.x = knee;
-        shinR.rotation.x = knee + 0.15;
-        lean = -0.16 * dirSign;
-      } else {
-        const amp = 0.6 * Math.min(1, s.speed / 3);
-        const sw = Math.sin(ph) * amp * dirSign;
-        bob = Math.abs(Math.cos(ph)) * 0.05;
-        legL.rotation.set(sw, 0, -side * 0.25);
-        legR.rotation.set(-sw, 0, -side * 0.25);
-        shinL.rotation.x = 0.15 + Math.max(0, -Math.sin(ph) * dirSign) * 0.65;
-        shinR.rotation.x = 0.15 + Math.max(0, Math.sin(ph) * dirSign) * 0.65;
-      }
-    } else if (!s.grounded) {
-      // airborne: knees tucked while rising, legs reach down for the landing while falling
-      const t = time * 1.3;
-      const fall = THREE.MathUtils.clamp(-vy / 4, 0, 1);
-      const tuck = 1 - fall;
-      legL.rotation.set(-0.5 * tuck - 0.15 * fall + Math.sin(t) * 0.06, 0, -0.06);
-      legR.rotation.set(0.1 * tuck - 0.05 * fall + Math.sin(t + 1) * 0.06, 0, 0.06);
-      shinL.rotation.x = 0.85 * tuck + 0.2 * fall;
-      shinR.rotation.x = 0.5 * tuck + 0.3 * fall;
+    this.dirK = blend(this.dirK, back > 0.3 ? -1 : 1, 8);
+    const dirSign = this.dirK;
+    // pose = [thighL, thighR, shinL, shinR, thighL z, thighR z, bob, lean, hips x]
+    type Pose = [number, number, number, number, number, number, number, number, number];
+    const mix = (a: Pose, b: Pose, k: number): Pose => a.map((v, i) => v + (b[i] - v) * k) as Pose;
+    const sm = (k: number) => k * k * (3 - 2 * k);
+    const sin2 = (k: number) => Math.sin(k * Math.PI) ** 2;
+    // idle: slow breathing and a lazy weight shift between the feet
+    const br = Math.sin(time * 1.8) * 0.02;
+    const shift = Math.sin(time * 0.45) * 0.03;
+    const idle: Pose = [br, -br, 0.06 + Math.max(0, shift) * 1.5, 0.06 + Math.max(0, -shift) * 1.5, -0.04 + shift, 0.04 + shift, br * 0.2, 0, shift * 0.6];
+    // walk
+    const amp = 0.6 * Math.min(1, s.speed / 3);
+    const sw = Math.sin(ph) * amp * dirSign;
+    const walk: Pose = [sw, -sw, 0.15 + Math.max(0, -Math.sin(ph) * dirSign) * 0.65, 0.15 + Math.max(0, Math.sin(ph) * dirSign) * 0.65, -side * 0.25, -side * 0.25, Math.cos(ph) ** 2 * 0.05, 0, 0];
+    // lunar lope (Apollo "skip" gait): short push-off contact, long parabolic flight; legs sweep back
+    // under the body on contact, tuck and reach forward in flight. Every curve is eased at the phase
+    // boundaries (the knee used to jump 0.15 rad and the thigh reverse instantly at each toe-off)
+    const c = (this.phase * 0.5) % 1;
+    const contact = 0.3;
+    let thigh: number;
+    let knee: number;
+    let lbob: number;
+    if (c < contact) {
+      const k = c / contact;
+      thigh = THREE.MathUtils.lerp(-0.42, 0.38, sm(k));
+      knee = 0.45 + sin2(k) * 0.2;
+      lbob = -sin2(k) * 0.05;
     } else {
-      // idle: slow breathing and a lazy weight shift between the feet
-      const br = Math.sin(time * 1.8) * 0.02;
-      const shift = Math.sin(time * 0.45) * 0.03;
-      legL.rotation.set(br, 0, -0.04 + shift);
-      legR.rotation.set(-br, 0, 0.04 + shift);
-      shinL.rotation.x = 0.06 + Math.max(0, shift) * 1.5;
-      shinR.rotation.x = 0.06 + Math.max(0, -shift) * 1.5;
-      B('hips').position.x = shift * 0.6;
-      bob = br * 0.2;
+      const k = (c - contact) / (1 - contact);
+      thigh = THREE.MathUtils.lerp(0.38, -0.42, sm(k));
+      knee = 0.45 + sin2(k) * 0.75;
+      lbob = sin2(k) * 0.2;
     }
-    if (moving || !s.grounded) B('hips').position.x = 0;
+    // skipping: trailing leg lags the lead leg
+    const lope: Pose = [thigh * dirSign - 0.06, (thigh + 0.22) * dirSign, knee, knee + 0.15, -side * 0.12, -side * 0.12, lbob, -0.16 * dirSign, 0];
+    // airborne: knees tucked while rising, legs reach down for the landing while falling
+    const t = time * 1.3;
+    const fall = THREE.MathUtils.clamp(-vy / 4, 0, 1);
+    const tuck = 1 - fall;
+    const air: Pose = [-0.5 * tuck - 0.15 * fall + Math.sin(t) * 0.06, 0.1 * tuck - 0.05 * fall + Math.sin(t + 1) * 0.06, 0.85 * tuck + 0.2 * fall, 0.5 * tuck + 0.3 * fall, -0.06, 0.06, 0, 0, 0];
+    // weights through smoothstep: an exponential ease alone still starts with a jolt (takeoff, landing)
+    const pose = mix(mix(idle, mix(walk, lope, sm(this.runK)), sm(this.moveK)), air, sm(this.airK));
+    legL.rotation.set(pose[0], 0, pose[4]);
+    legR.rotation.set(pose[1], 0, pose[5]);
+    shinL.rotation.x = pose[2];
+    shinR.rotation.x = pose[3];
+    let bob = pose[6];
+    let lean = pose[7];
+    B('hips').position.x = pose[8];
     // landing compression (spring back over ~0.4 s)
     const lk = this.landK * this.landK;
     if (lk > 0.001) {
@@ -687,7 +697,8 @@ export class HeroModel {
     }
     B('footL').rotation.x = -shinL.rotation.x * 0.5 - legL.rotation.x * 0.3;
     B('footR').rotation.x = -shinR.rotation.x * 0.5 - legR.rotation.x * 0.3;
-    const cr = s.crouch;
+    this.crouchK = blend(this.crouchK, s.crouch, 12);
+    const cr = sm(this.crouchK);
     legL.rotation.x -= cr * 0.95;
     legR.rotation.x -= cr * 0.95;
     shinL.rotation.x += cr * 1.6;
@@ -696,13 +707,15 @@ export class HeroModel {
     B('footR').rotation.x -= cr * 0.6;
     B('hips').position.y = 0.98 + bob - cr * 0.4;
 
-    const p = s.pitch;
+    // aim pitch eased (bot aim and network snapshots jump; the torso and head followed every jump)
+    this.pitchS = blend(this.pitchS, s.pitch, 22);
+    const p = this.pitchS;
     const spine = B('spine');
     const chest = B('chest');
     // (positive X leans back) — crouch and lope lean the torso forward
     spine.rotation.set(p * 0.2 - cr * 0.12 + lean, 0, -side * 0.08);
-    const breath = moving ? 0 : Math.sin(time * 1.8) * 0.015;
-    chest.rotation.set(p * 0.2 + this.flinch * 0.25 + breath, 0, Math.sin(ph) * 0.03 * (moving && !run ? 1 : 0));
+    const breath = Math.sin(time * 1.8) * 0.015 * (1 - this.moveK);
+    chest.rotation.set(p * 0.2 + this.flinch * 0.25 + breath, 0, Math.sin(ph) * 0.03 * this.moveK * (1 - this.runK));
     B('head').rotation.x = p * 0.3;
     const armPitch = p * 0.6 - this.fireKick * 0.12;
     const aimBase = Math.PI / 2 - 0.15;
@@ -713,10 +726,8 @@ export class HeroModel {
       B('foreR').rotation.set(0.9, 0, 0);
       B('armL').rotation.set(0.85 + armPitch * 0.5, 0, -0.45);
       B('foreL').rotation.set(1.0, 0, 0.35);
-      if (moving) {
-        B('armL').rotation.x += Math.sin(ph) * 0.15;
-        B('armR').rotation.x -= Math.sin(ph) * 0.08;
-      }
+      B('armL').rotation.x += Math.sin(ph) * 0.15 * this.moveK;
+      B('armR').rotation.x -= Math.sin(ph) * 0.08 * this.moveK;
     } else {
       B('armR').rotation.set(aimBase + armPitch - cr * 0.15, 0.05, 0.1);
       B('foreR').rotation.set(0.15, 0, 0);
@@ -858,8 +869,8 @@ export class HeroModel {
     const wL = wR * (1 - this.castK) * (1 - this.deflectK);
     this.root.updateMatrixWorld(true);
     const sc = this.scale;
-    // aim frame in the model group's space → world
-    const p = s.pitch;
+    // aim frame in the model group's space → world (eased pitch, as the torso)
+    const p = this.pitchS;
     const aim = new THREE.Vector3(0, Math.sin(p), -Math.cos(p));
     const right = new THREE.Vector3(1, 0, 0);
     const upv = new THREE.Vector3().crossVectors(right, aim).normalize();

@@ -1198,7 +1198,15 @@ export class Game {
         f.renderQuat.copy(f.prevQuat).slerp(f.body.quat, a);
         f.renderPitch = f.body.pitch;
       }
+      // a step-up lifts the body up to 0.55 m within one physics step: draw it rising over ~80 ms
+      // instead of popping (steady climbing moves far less per frame and is left alone)
+      const jump = f.renderPos.y - f.lastDrawY;
+      f.lastDrawY = f.renderPos.y;
+      if (f.body.grounded && jump > 0.12 && jump < 0.7) f.stepOff -= jump;
+      f.stepOff *= Math.exp(-dt * 25);
+      if (Math.abs(f.stepOff) < 0.002) f.stepOff = 0;
       m.root.position.copy(f.renderPos);
+      m.root.position.y += f.stepOff;
       m.root.quaternion.copy(f.renderQuat);
       const lv = _v.copy(f.body.vel).applyQuaternion(_q.copy(f.renderQuat).invert());
       m.setCloak(f.cloakT > 0 ? (me && this.areEnemies(me, f) && f.revealedT <= 0 ? 1 : 0.6) : 0);

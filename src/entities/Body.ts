@@ -713,9 +713,17 @@ export class Body {
       } else {
         // ground snap: keep contact when walking down gentle slopes
         if (this.wasGrounded && !prevAttached && !input.jumpPressed && this.detachTimer <= 0) {
-          const hgt = this.world.hf.heightAt(this.pos.x, this.pos.z);
+          // the feet sphere rests tangent to the slope, i.e. r·(1/n.y − 1) above the height under its
+          // centre (6–7 cm on a 30° crater wall). Snapping the feet onto the height itself sank the
+          // sphere into the slope; the next step pushed it back out, up and downhill — bodies vibrated
+          // on every slope at 30 Hz, with the speed jumping between steps.
+          this.world.hf.normalAt(this.pos.x, this.pos.z, _t2);
+          const hgt = this.world.hf.heightAt(this.pos.x, this.pos.z) + r * (1 / Math.max(0.5, _t2.y) - 1);
           const gap = this.pos.y - hgt;
-          if (gap > 0 && gap < 0.3 && this.vel.y <= 0.5) {
+          // (not into the lip of a pad / slab: graded ground sits a few cm below foundations, and
+          // pulling the feet sphere into the edge made the collision push it straight back up next
+          // step — bodies buzzed up and down along every foundation edge)
+          if (gap > 0 && gap < 0.3 && this.vel.y <= 0.5 && !this.world.pointBlocked(_t1.set(this.pos.x, hgt + r + 0.01, this.pos.z), r * 0.97)) {
             this.pos.y = hgt;
             this.grounded = true;
             this.world.hf.normalAt(this.pos.x, this.pos.z, this.groundNormal);

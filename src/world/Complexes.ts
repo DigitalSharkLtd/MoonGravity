@@ -189,14 +189,14 @@ export function block(k: Kit, s: BlockSpec): void {
       if (k.blocked(x, z, w + 0.6, d + 0.6, roofY)) continue;
       const kind = rng.next();
       if (kind < 0.45) {
-        k.box(x, roofY + 0.45, z, w, 0.9, d, 'hullGray', { bevel: 0.06 });
+        k.box(x, roofY + 0.45, z, w, 0.9, d, 'hullGray', { bevel: 0.06, metal: false });
         k.cyl(x + w * 0.2, roofY + 0.95, z, Math.min(w, d) * 0.3, 0.12, 'dark', { seg: 12, collide: false });
         k.box(x - w * 0.25, roofY + 0.5, z + d / 2 + 0.01, w * 0.4, 0.5, 0.03, 'vent', { collide: false, bevel: 0 });
       } else if (kind < 0.75) {
-        k.box(x, roofY + 0.3, z, w, 0.6, d, 'vent', { bevel: 0.05 });
+        k.box(x, roofY + 0.3, z, w, 0.6, d, 'vent', { bevel: 0.05, metal: false });
         k.box(x, roofY + 0.65, z, w + 0.1, 0.1, d + 0.1, 'trim', { collide: false, bevel: 0.02 });
       } else {
-        k.box(x, roofY + 0.15, z, 1.0, 0.3, 1.0, 'darkPanel', { bevel: 0.04 });
+        k.box(x, roofY + 0.15, z, 1.0, 0.3, 1.0, 'darkPanel', { bevel: 0.04, metal: false });
         k.beam([x, roofY + 0.3, z], [x, roofY + 3.2, z], 0.08, 'steel', { round: true });
         k.beam([x, roofY + 2.4, z], [x + 0.7, roofY + 2.4, z], 0.05, 'steel', { round: true });
         k.beacon(x, roofY + 3.3, z, 0xff3a2a, 1.9, rng.next());
@@ -282,7 +282,7 @@ export function kitTest(b: StructureBuilder, _def: MapDef, info: LayoutInfo): vo
 export function rampart(k: Kit, ax: number, az: number, bx: number, bz: number, o: { h?: number; w?: number; gates?: Opening[]; outer: 1 | -1; team?: number | null; lamps?: boolean }): void {
   const h = o.h ?? FLOOR;
   const w = o.w ?? 3;
-  k.wall(ax, az, bx, bz, 0, h, w, 'regolith', o.gates ?? [], { metal: false, cap: null, base: 'concrete', bevel: 0.12, seg: 3, doorLight: teamLight(o.team) });
+  k.wall(ax, az, bx, bz, 0, h, w, 'regolith', o.gates ?? [], { cap: null, base: 'concrete', bevel: 0.12, seg: 3, doorLight: teamLight(o.team) });
   const len = Math.hypot(bx - ax, bz - az);
   const rot = Math.atan2(-(bz - az), bx - ax);
   const kk = k.at((ax + bx) / 2, (az + bz) / 2, rot, 0);
@@ -290,8 +290,8 @@ export function rampart(k: Kit, ax: number, az: number, bx: number, bz: number, 
   // metal crest deck (mag-consistent with the metal stairs/bridges that land on it)
   kk.box(0, h + 0.05, -s * 0.3, len - 0.1, 0.1, w - 0.6, 'grid', { bevel: 0.02, seg: 3 });
   // parapet: continuous breast wall + merlons with crenel gaps
-  kk.box(0, h + 0.375, s * (w / 2 - 0.3), len, 0.75, 0.6, 'regolith', { metal: false, bevel: 0.1 });
-  for (let u = -len / 2 + 1.0; u <= len / 2 - 0.9; u += 2.6) kk.box(u, h + 1.12, s * (w / 2 - 0.3), 1.6, 0.75, 0.62, 'regolith', { metal: false, bevel: 0.12 });
+  kk.box(0, h + 0.375, s * (w / 2 - 0.3), len, 0.75, 0.6, 'regolith', { bevel: 0.1 });
+  for (let u = -len / 2 + 1.0; u <= len / 2 - 0.9; u += 2.6) kk.box(u, h + 1.12, s * (w / 2 - 0.3), 1.6, 0.75, 0.62, 'regolith', { bevel: 0.12 });
   kk.box(0, h + 0.77, s * (w / 2 - 0.3), len + 0.02, 0.06, 0.66, o.team === null || o.team === undefined ? 'trim' : teamMat(o.team), { collide: false, bevel: 0 });
   kk.box(0, h + 0.1, -s * (w / 2 - 0.12), len, 0.2, 0.24, 'trim', { collide: false, bevel: 0.04 });
   // outer face: buttress ribs + team band
@@ -312,7 +312,7 @@ export function rampart(k: Kit, ax: number, az: number, bx: number, bz: number, 
 export function bastion(k: Kit, x: number, z: number, size: number, faceRot: number, team: number | null, h = FLOOR): void {
   // faceRot: direction (radians, local frame) the bastion tip points to
   const kk = k.at(x, z, faceRot, 0);
-  kk.box(0, h / 2, 0, size, h, size, 'regolith', { rot: Math.PI / 4, metal: false, bevel: 0.2, seg: 3 });
+  kk.box(0, h / 2, 0, size, h, size, 'regolith', { rot: Math.PI / 4, bevel: 0.2, seg: 3 });
   kk.box(0, 0.25, 0, size + 0.6, 0.5, size + 0.6, 'concrete', { rot: Math.PI / 4, collide: false, bevel: 0.1 });
   const d = size / Math.SQRT2; // half diagonal
   // tip at local +x: outer faces run from (d,0) to (0,±d)
@@ -324,8 +324,8 @@ export function bastion(k: Kit, x: number, z: number, size: number, faceRot: num
     const len = Math.hypot(bx - ax, bz - az);
     const rot = Math.atan2(-(bz - az), bx - ax);
     const pk = kk.at((ax + bx) / 2, (az + bz) / 2, rot, h);
-    pk.box(0, 0.3, 0, len, 0.6, 0.6, 'regolith', { metal: false, bevel: 0.1 });
-    for (let u = -len / 2 + 0.9; u <= len / 2 - 0.8; u += 2.6) pk.box(u, 1.0, 0, 1.6, 0.8, 0.62, 'regolith', { metal: false, bevel: 0.12 });
+    pk.box(0, 0.3, 0, len, 0.6, 0.6, 'regolith', { bevel: 0.1 });
+    for (let u = -len / 2 + 0.9; u <= len / 2 - 0.8; u += 2.6) pk.box(u, 1.0, 0, 1.6, 0.8, 0.62, 'regolith', { bevel: 0.12 });
     pk.box(0, 0.62, 0, len, 0.06, 0.66, teamMat(team), { collide: false, bevel: 0 });
   }
   kk.box(0, h + 0.05, 0, size * 0.94, 0.1, size * 0.94, 'grid', { rot: Math.PI / 4, bevel: 0.02, seg: 3 });
@@ -483,11 +483,11 @@ function commandBunker(k: Kit, team: number, m: Markers): void {
   const x1 = 5.5;
   const hh = 5;
   k.slab(x0, -7, x1, 7, 0.2, 0.5, 'tile', {});
-  k.wall(x0, -7, x0, 7, 0, hh, 0.8, 'concrete', [], { metal: false, cap: null, lining: { side: 1, mat: 'darkPanel', h: 1.4, rail: tm } });
-  k.wall(x0, -7, x1, -7, 0, hh, 0.8, 'concrete', [], { metal: false, cap: null, lining: { side: 1, mat: 'darkPanel', h: 1.4, rail: tm } });
-  k.wall(x0, 7, x1, 7, 0, hh, 0.8, 'concrete', [], { metal: false, cap: null, lining: { side: -1, mat: 'darkPanel', h: 1.4, rail: tm } });
+  k.wall(x0, -7, x0, 7, 0, hh, 0.8, 'concrete', [], { cap: null, lining: { side: 1, mat: 'darkPanel', h: 1.4, rail: tm } });
+  k.wall(x0, -7, x1, -7, 0, hh, 0.8, 'concrete', [], { cap: null, lining: { side: 1, mat: 'darkPanel', h: 1.4, rail: tm } });
+  k.wall(x0, 7, x1, 7, 0, hh, 0.8, 'concrete', [], { cap: null, lining: { side: -1, mat: 'darkPanel', h: 1.4, rail: tm } });
   // headwall with the portal (wider & taller than the box, reads as a mountain portal)
-  k.wall(x1 + 0.4, -10, x1 + 0.4, 10, 0, 6.6, 1.6, 'concrete', [{ u: 10, w: 4.4, h: 3.8, team, kind: 'door' }], { metal: false, cap: 'trim', bevel: 0.2 });
+  k.wall(x1 + 0.4, -10, x1 + 0.4, 10, 0, 6.6, 1.6, 'concrete', [{ u: 10, w: 4.4, h: 3.8, team, kind: 'door' }], { cap: 'trim', bevel: 0.2 });
   for (const s of [-1, 1]) {
     // blast door leaves, swung open against the headwall
     k.box(x1 + 2.6, 1.95, s * 4.5, 3.4, 3.9, 0.7, 'darkPanel', { rot: s * 0.25, bevel: 0.12 });
@@ -499,10 +499,10 @@ function commandBunker(k: Kit, team: number, m: Markers): void {
   // portal hood: a short roofed throat so nothing on the walls / far roofs can look down into the war room
   const hx0 = x1 + 1.2;
   const hx1 = x1 + 4.2;
-  k.span(hx0, 4.0, -3.3, hx1, 4.55, 3.3, 'concrete', { metal: false, bevel: 0.1 });
-  for (const s of [-1, 1]) k.span(hx0, 0.12, s * 2.5, hx1, 4.0, s * 3.3, 'concrete', { metal: false, bevel: 0.08 });
+  k.span(hx0, 4.0, -3.3, hx1, 4.55, 3.3, 'concrete', { bevel: 0.1 });
+  for (const s of [-1, 1]) k.span(hx0, 0.12, s * 2.5, hx1, 4.0, s * 3.3, 'concrete', { bevel: 0.08 });
   // lintel over the mouth (2.9 m clear): shallow lines from far elevated spots can't slip in above heads
-  k.span(hx1 - 0.45, 2.9, -2.5, hx1, 4.0, 2.5, 'concrete', { metal: false, bevel: 0.06 });
+  k.span(hx1 - 0.45, 2.9, -2.5, hx1, 4.0, 2.5, 'concrete', { bevel: 0.06 });
   k.box(hx1 - 0.1, 4.28, 0, 0.3, 0.6, 6.7, tm, { collide: false, bevel: 0.05 });
   k.box(hx1 - 0.05, 3.85, 0, 0.12, 0.08, 4.8, teamGlow(team), { collide: false, bevel: 0 });
   k.light((hx0 + hx1) / 2, 3.4, 0, tl, 3, 5);
@@ -515,9 +515,9 @@ function commandBunker(k: Kit, team: number, m: Markers): void {
   k.berm(x0 - 1, 11, x1 + 0.5, 11, cap, 2.5, 9);
   k.berm(x0 - 1, -11, x1 + 0.5, -11, cap, 2.5, 9);
   // cap pieces around a 1.4 m metal margin of the hatch (x -6.5..1.4, z 3.2..7.4)
-  k.span(x0 - 1.2, hh + 0.5, -9, x1 + 0.2, cap, 3.2, 'dirt', { metal: false, bevel: 0.15, seg: 3 });
-  k.span(1.4, hh + 0.5, 3.2, x1 + 0.2, cap, 9, 'dirt', { metal: false, bevel: 0.15 });
-  k.span(x0 - 1.2, hh + 0.5, 7.4, 1.4, cap, 9, 'dirt', { metal: false, bevel: 0.15 });
+  k.span(x0 - 1.2, hh + 0.5, -9, x1 + 0.2, cap, 3.2, 'dirt', { bevel: 0.15, seg: 3 });
+  k.span(1.4, hh + 0.5, 3.2, x1 + 0.2, cap, 9, 'dirt', { bevel: 0.15 });
+  k.span(x0 - 1.2, hh + 0.5, 7.4, 1.4, cap, 9, 'dirt', { bevel: 0.15 });
   // apron grid overlay around (not over) the hatch [stair.x1..0, 4.6..6.6]
   for (const [a, b, c, d] of [
     [x0 - 0.4, 3.2, 1.4, 4.6],
@@ -679,10 +679,10 @@ export function processingPlant(k: Kit, m: Markers, o: { conveyorTo?: THREE.Vect
   hk.railing(-3.2, -3.8, -3.2, 2.8, FLOOR, { mat: 'orange' });
   hk.railing(4.2, -3.8, 4.2, 2.8, FLOOR, { mat: 'orange' });
   // crusher (jaw crusher block + flywheel) in the double-height core
-  hk.box(0.5, 1.4, -0.5, 4, 2.8, 3.2, 'yellow', { bevel: 0.15 });
-  hk.box(0.5, 3.1, -0.5, 3.2, 0.6, 2.4, 'darkPanel', { bevel: 0.1 });
+  hk.box(0.5, 1.4, -0.5, 4, 2.8, 3.2, 'yellow', { bevel: 0.15, metal: false });
+  hk.box(0.5, 3.1, -0.5, 3.2, 0.6, 2.4, 'darkPanel', { bevel: 0.1, metal: false });
   hk.cylH(-2, 1.9, -0.5, 1.3, 0.5, 'x', 'dark', { seg: 16 });
-  hk.box(0.5, 4.2, -0.5, 2.6, 1.6, 2.2, 'dark', { bevel: 0.08 });
+  hk.box(0.5, 4.2, -0.5, 2.6, 1.6, 2.2, 'dark', { bevel: 0.08, metal: false });
   hk.pipe([[0.5, 5.0, -0.5], [0.5, 7.6, -0.5]], 0.35, 'steel');
   // control room props (upstairs, north)
   for (const x of [-5.5, -3.2]) hk.console(x, 6.1, Math.PI, FLOOR, 'screen');
@@ -812,9 +812,9 @@ export function siloComplex(k: Kit, m: Markers, o: { seed?: number } = {}): void
   // yard instead of a sniper deck overlooking half the map
   {
     const R = 2 * FLOOR;
-    lk.span(2.0, R, -4.1, 5.7, R + 3.2, 4.1, 'yellow', { bevel: 0.12 });
-    lk.span(1.85, R + 3.2, -4.25, 5.85, R + 3.5, 4.25, 'darkPanel', { bevel: 0.06 });
-    lk.span(2.8, R + 3.5, -1.5, 4.8, R + 4.3, 1.5, 'dark', { bevel: 0.08 });
+    lk.span(2.0, R, -4.1, 5.7, R + 3.2, 4.1, 'yellow', { bevel: 0.12, metal: false });
+    lk.span(1.85, R + 3.2, -4.25, 5.85, R + 3.5, 4.25, 'darkPanel', { bevel: 0.06, metal: false });
+    lk.span(2.8, R + 3.5, -1.5, 4.8, R + 4.3, 1.5, 'dark', { bevel: 0.08, metal: false });
     for (const z of [-2.6, 0, 2.6]) lk.box(1.9, R + 1.6, z, 0.08, 2.8, 0.12, 'darkPanel', { collide: false, bevel: 0 });
     lk.panel(1.92, R + 2.2, 0, 3.4, 0.8, -1, 0, 0, 'hazard');
     lk.box(3.2, R + 0.8, 4.2, 1.6, 1.4, 0.2, 'darkPanel', { collide: false, bevel: 0.04 });

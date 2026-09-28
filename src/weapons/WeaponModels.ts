@@ -1024,9 +1024,20 @@ function mountHolo(g: THREE.Group, at: At): void {
     if (hit) top = Math.max(top, hit.point.y);
   }
   if (!Number.isFinite(top)) top = new THREE.Box3().setFromObject(g).max.y;
+  // everything ahead of the sight (shroud, front post, muzzle brake) must stay below the window: the
+  // line of sight runs 0.021 above the base, and a part 0.5 m ahead needs ~3.5 cm of drop to leave the
+  // window — the pulse rifle's shroud used to fill the lower half of the holo view
+  let front = -Infinity;
+  for (let f = 0.3; f <= 1.2; f += 0.03) {
+    rc.set(new THREE.Vector3(0, 1, -f), new THREE.Vector3(0, -1, 0));
+    const hit = rc.intersectObject(g, true)[0];
+    if (hit) front = Math.max(front, hit.point.y);
+  }
   const D = dark();
   topRail(at, D, top, 0.0, 0.29);
-  const y = top + 0.012;
+  const y = Math.max(top + 0.012, front + 0.035 - 0.021);
+  // riser block when the optic has to sit higher than the rail
+  if (y - top > 0.02) at(sect([[-0.02, top], [0.02, top], [0.02, y - 0.004], [-0.02, y - 0.004]], 0.06, 0.22, { bevel: 0.003 }), D);
   at(sect([[-0.03, y - 0.004], [0.03, y - 0.004], [0.03, y + 0.004], [-0.03, y + 0.004]], 0.03, 0.25, { bevel: 0.002 }), D);
   frameSight(at, D, y, 0.04, 0.06, 0.024, 0.042);
   frameSight(at, D, y, 0.21, 0.24, 0.032, 0.062);

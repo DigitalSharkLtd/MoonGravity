@@ -47,7 +47,7 @@ class L {
   cylZ(x: number, y: number, z: number, r: number, len: number, mat: Mat, opts: { collide?: boolean; seg?: number } = {}) {
     return this.b.cyl(this.p(x, y, z), r, len, mat, { ...opts, quat: this.q(qAxis(V(1, 0, 0), Math.PI / 2)) });
   }
-  beam(a: [number, number, number], bb: [number, number, number], t: number, mat: Mat, opts: { collide?: boolean; round?: boolean } = {}) {
+  beam(a: [number, number, number], bb: [number, number, number], t: number, mat: Mat, opts: { collide?: boolean; round?: boolean; metal?: boolean } = {}) {
     this.b.beam(this.p(...a), this.p(...bb), t, mat, opts);
   }
   panel(x: number, y: number, z: number, w: number, h: number, nx: number, ny: number, nz: number, mat: Mat) {
@@ -261,7 +261,7 @@ export function armorWall(b: StructureBuilder, x1: number, z1: number, x2: numbe
 /** Low cover block / barricade. */
 export function barricade(b: StructureBuilder, f: Frame, len: number, team: number | null): void {
   const l = new L(b, f);
-  l.box(0, 0.55, 0, len, 1.5, 0.9, 'darkPanel');
+  l.box(0, 0.55, 0, len, 1.5, 0.9, 'darkPanel', { metal: false });
   l.box(0, 1.35, 0, len + 0.1, 0.15, 1.0, teamMat(team), { collide: false });
   l.panel(0, 0.7, 0.46, len - 0.3, 0.5, 0, 0, 1, 'hazard');
   l.panel(0, 0.7, -0.46, len - 0.3, 0.5, 0, 0, -1, 'hazard');
@@ -275,13 +275,13 @@ export function containers(b: StructureBuilder, f: Frame, layout: [number, numbe
   const rng = new Rng(seed);
   for (const [x, z, level, rot] of layout) {
     const mat = rng.pick(CONTAINERS);
-    l.box(x, 1.25 + level * 2.5, z, 2.4, 2.5, 5.8, mat, { rot });
+    l.box(x, 1.25 + level * 2.5, z, 2.4, 2.5, 5.8, mat, { rot, metal: false });
   }
 }
 
 export function crate(b: StructureBuilder, f: Frame, s = 1.2): void {
   const l = new L(b, f);
-  l.box(0, s / 2, 0, s, s, s, 'darkPanel');
+  l.box(0, s / 2, 0, s, s, s, 'darkPanel', { metal: false });
   l.box(0, s / 2, 0, s + 0.05, s * 0.2, s + 0.05, 'yellow', { collide: false });
 }
 
@@ -317,16 +317,16 @@ export function solarArray(b: StructureBuilder, f: Frame, n: number): void {
   const tilt = qAxis(V(1, 0, 0), -0.55);
   for (let i = 0; i < n; i++) {
     const x = (i - (n - 1) / 2) * 3.6;
-    l.beam([x, 0, 0], [x, 1.7, 0], 0.14, 'steel', { round: true, collide: true });
-    l.box(x, 2.0, 0, 3.3, 0.08, 2.2, 'solar', { tilt });
+    l.beam([x, 0, 0], [x, 1.7, 0], 0.14, 'steel', { round: true, collide: true, metal: false });
+    l.box(x, 2.0, 0, 3.3, 0.08, 2.2, 'solar', { tilt, metal: false });
     l.box(x, 1.95, 0, 3.4, 0.05, 2.3, 'dark', { tilt, collide: false });
   }
 }
 
 export function lightPole(b: StructureBuilder, f: Frame, h = 6): void {
   const l = new L(b, f);
-  l.beam([0, -0.3, 0], [0, h, 0], 0.18, 'steel', { round: true, collide: true });
-  l.beam([0, h, 0], [0.9, h + 0.2, 0], 0.12, 'steel', { round: true });
+  l.beam([0, -0.3, 0], [0, h, 0], 0.18, 'steel', { round: true, collide: true, metal: false });
+  l.beam([0, h, 0], [0.9, h + 0.2, 0], 0.12, 'steel', { round: true, metal: false });
   l.box(1.0, h + 0.05, 0, 0.9, 0.25, 0.5, 'dark', { collide: false });
   l.box(1.0, h - 0.1, 0, 0.75, 0.06, 0.38, 'lamp', { collide: false });
   b.lamps.push(l.p(1.0, h - 0.4, 0));
@@ -413,8 +413,8 @@ export function pylon(b: StructureBuilder, x: number, z: number, topY: number, w
   const gy = b.ground(x, z) - 1;
   const h = topY - gy;
   if (h <= 0.5) return;
-  b.box(V(x, gy + h / 2, z), w, h, w, 0, 'darkPanel');
-  b.box(V(x, gy + 1.2, z), w + 0.6, 1.4, w + 0.6, 0, 'dark');
+  b.box(V(x, gy + h / 2, z), w, h, w, 0, 'darkPanel', { metal: false });
+  b.box(V(x, gy + 1.2, z), w + 0.6, 1.4, w + 0.6, 0, 'dark', { metal: false });
 }
 
 /**
@@ -684,7 +684,7 @@ export function spawnGate(b: StructureBuilder, f: Frame, team: number): void {
 /** Oxygen / repair station (glowing canister rack) — gameplay pickups are placed on these. */
 export function o2Station(b: StructureBuilder, f: Frame, team: number | null): void {
   const l = new L(b, f);
-  l.box(0, 0.9, 0, 1.6, 1.8, 0.8, 'hull');
+  l.box(0, 0.9, 0, 1.6, 1.8, 0.8, 'hull', { metal: false });
   l.box(0, 1.95, 0, 1.7, 0.25, 0.9, teamMat(team), { collide: false });
   l.panel(0, 1.2, 0.41, 1.0, 0.7, 0, 0, 1, 'glassBlue');
   for (const s of [-1, 1]) l.cylY(s * 0.55, 0.6, 0.55, 0.22, 1.2, 'containerWhite', { collide: false, seg: 10 });
@@ -694,10 +694,10 @@ export function o2Station(b: StructureBuilder, f: Frame, team: number | null): v
 export function wreck(b: StructureBuilder, f: Frame): void {
   const l = new L(b, f);
   l.cylY(0, 1.0, 0, 2.0, 1.8, 'gold', { seg: 8 });
-  l.box(1.5, 0.6, 1.2, 2.5, 1.2, 1.8, 'hullGray', { rot: 0.5, tilt: qAxis(V(1, 0, 0), 0.3) });
-  l.beam([-1.5, 1.4, 0], [-3.5, 0.1, 0.8], 0.16, 'steel', { round: true, collide: true });
-  l.beam([0, 1.8, 1.8], [0.5, 0.1, 3.8], 0.16, 'steel', { round: true, collide: true });
-  l.box(-1.2, 0.35, -2.2, 2.2, 0.7, 1.5, 'solar', { rot: 1.1 });
+  l.box(1.5, 0.6, 1.2, 2.5, 1.2, 1.8, 'hullGray', { rot: 0.5, tilt: qAxis(V(1, 0, 0), 0.3), metal: false });
+  l.beam([-1.5, 1.4, 0], [-3.5, 0.1, 0.8], 0.16, 'steel', { round: true, collide: true, metal: false });
+  l.beam([0, 1.8, 1.8], [0.5, 0.1, 3.8], 0.16, 'steel', { round: true, collide: true, metal: false });
+  l.box(-1.2, 0.35, -2.2, 2.2, 0.7, 1.5, 'solar', { rot: 1.1, metal: false });
 }
 
 /** Bunker with firing slits (half-buried). */

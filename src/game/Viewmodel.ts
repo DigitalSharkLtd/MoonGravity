@@ -220,7 +220,7 @@ export class Viewmodel {
       );
       glass.position.set(0, sg.y, -sg.far - 0.004);
       const ret = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.03, 0.03),
+        new THREE.PlaneGeometry(0.015, 0.015),
         new THREE.MeshBasicMaterial({ map: reticleTex(), color: 0xff4a3a, transparent: true, opacity: 0, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, toneMapped: false }),
       );
       ret.position.set(0, sg.y, -sg.far);
